@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>expressCARD — Moja karta (Owner prototyp)</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="stylesheet" href="assets/css/expresscard-prototype.css?v=20260828-owner1">
+</head>
+<body class="ec-page ec-owner">
+  <noscript>
+    <p class="ec-noscript">Tento Owner prototyp je čitateľný aj bez JavaScriptu. Zdieľanie a kopírovanie odkazu vyžadujú JavaScript.</p>
+  </noscript>
+
+  <div class="ec-stage">
+  <div class="ec-owner-shell" data-guest-url="https://expresscard.eu/alexander-smart">
+    <header class="ec-owner-header">
+      <p class="ec-owner-brand" aria-label="expressCARD">
+        <span class="ec-owner-brand__text" lang="en">
+          <span class="ec-owner-brand__express">express</span><span class="ec-owner-brand__card">CARD</span>
+        </span>
+      </p>
+      <p class="ec-owner-kicker">Moja karta</p>
+      <button type="button" class="ec-owner-close" data-owner-action="close">
+        <span class="ec-owner-icon is-icon-missing" data-icon-name="close" aria-hidden="true"></span>
+        Zavrieť
+      </button>
+    </header>
+
+    <main class="ec-owner-main">
+      <section class="ec-owner-identity" aria-labelledby="ec-owner-name">
+        <div class="ec-owner-identity__photo" aria-hidden="true">
+          <span class="ec-owner-identity__initials">AS</span>
+        </div>
+        <div class="ec-owner-identity__text">
+          <h1 class="ec-owner-identity__name" id="ec-owner-name">Alexander Smart</h1>
+          <p class="ec-owner-identity__role">Marketing strategist of expressar</p>
+          <p class="ec-owner-identity__company">Artefactum s.r.o.</p>
+          <p class="ec-owner-identity__meta">
+            <span>Pracovná karta</span>
+            <span class="ec-demo-tag">ukážka</span>
+          </p>
+          <p class="ec-owner-status">Publikovaná</p>
+          <a class="ec-owner-identity__open" href="index.html">Otvoriť verejnú kartu</a>
+        </div>
+      </section>
+
+      <section class="ec-owner-qr-block" aria-labelledby="ec-owner-qr-title">
+        <div class="ec-owner-qr" role="img" aria-label="Dynamický QR – produkčný renderer">
+          <div class="ec-owner-qr__quiet">
+            <div class="ec-owner-qr__placeholder">
+              <p class="ec-owner-qr__label">Dynamický QR – produkčný renderer</p>
+            </div>
+          </div>
+        </div>
+        <h2 class="ec-owner-qr-title" id="ec-owner-qr-title">Naskenujte a otvorte moju expressCARD</h2>
+        <p class="ec-owner-qr-url">
+          <span lang="en">expresscard.eu/alexander-smart</span>
+          <span class="ec-demo-tag">ukážka</span>
+        </p>
+      </section>
+
+      <nav class="ec-owner-primary" aria-label="Zdieľanie karty">
+        <button type="button" class="ec-owner-primary__btn" data-owner-primary-action="share">
+          <span class="ec-owner-icon is-icon-missing" data-icon-name="share" aria-hidden="true"></span>
+          Zdieľať
+        </button>
+        <button type="button" class="ec-owner-primary__btn" data-owner-primary-action="copy-link">
+          <span class="ec-owner-icon is-icon-missing" data-icon-name="copy-link" aria-hidden="true"></span>
+          Kopírovať odkaz
+        </button>
+        <a class="ec-owner-primary__btn" data-owner-primary-action="open-guest" href="index.html">
+          <span class="ec-owner-icon is-icon-missing" data-icon-name="open-guest" aria-hidden="true"></span>
+          Otvoriť Guest mode
+        </a>
+      </nav>
+
+      <p class="ec-owner-live" id="ec-owner-live" role="status" aria-live="polite"></p>
+
+      <div class="ec-owner-manual" id="ec-owner-manual" hidden>
+        <label class="ec-owner-manual__label" for="ec-owner-url-field">Verejný Guest odkaz na označenie</label>
+        <input class="ec-owner-manual__field" id="ec-owner-url-field" type="text" readonly value="https://expresscard.eu/alexander-smart">
+      </div>
+
+      <section class="ec-owner-secondary" aria-labelledby="ec-owner-secondary-title">
+        <h2 class="ec-owner-section-title" id="ec-owner-secondary-title">Ďalšie akcie</h2>
+        <ul class="ec-owner-secondary__list">
+          <li>
+            <button type="button" class="ec-owner-secondary__btn" data-owner-action="vcf">
+              <span class="ec-owner-icon is-icon-missing" data-icon-name="vcf" aria-hidden="true"></span>
+              Môj kontakt / VCF
+            </button>
+          </li>
+          <li>
+            <a class="ec-owner-secondary__btn" href="https://expressar.eu/" rel="noopener noreferrer">
+              <span class="ec-owner-icon is-icon-missing" data-icon-name="edit" aria-hidden="true"></span>
+              Upraviť kartu
+            </a>
+          </li>
+          <li>
+            <a class="ec-owner-secondary__btn" href="index.html">
+              <span class="ec-owner-icon is-icon-missing" data-icon-name="preview" aria-hidden="true"></span>
+              Náhľad verejnej karty
+            </a>
+          </li>
+        </ul>
+        <p class="ec-owner-note">Úprava karty bude v editore na expressar.eu. V tomto prototype odkaz otvára úvodnú stránku Expressaru.</p>
+      </section>
+
+      <section class="ec-owner-inbox" aria-labelledby="ec-owner-inbox-title">
+        <h2 class="ec-owner-section-title" id="ec-owner-inbox-title">Stav a kontakty</h2>
+        <p class="ec-owner-inbox__status">Karta je publikovaná.</p>
+        <p class="ec-owner-inbox__count">
+          2 nové získané kontakty
+          <span class="ec-demo-tag">ukážka</span>
+        </p>
+        <button type="button" class="ec-owner-secondary__btn" data-owner-action="contacts">
+          <span class="ec-owner-icon is-icon-missing" data-icon-name="contacts" aria-hidden="true"></span>
+          Zobraziť kontakty
+        </button>
+      </section>
+    </main>
+
+    <footer class="ec-owner-footer">
+      <p class="ec-footer__mark" role="img" aria-label="expressCARD">
+        <span class="ec-footer__mark-icon" aria-hidden="true"></span>
+        <img class="ec-footer__mark-fallback" src="images/expressCARD_App.svg" alt="" width="56" height="56">
+      </p>
+      <p class="ec-owner-footer__note">Ukážkový Owner mode prototyp. Nie je to produkčný prístup, editor ani renderer. Nie je zdroj pravdy karty.</p>
+    </footer>
+  </div>
+  </div>
+
+  <aside class="ec-debug" id="ec-debug" hidden>
+    <h2 class="ec-debug__title">DEBUG</h2>
+    <dl class="ec-debug__list">
+      <div><dt>Viewport</dt><dd id="ec-debug-viewport">—</dd></div>
+      <div><dt>Režim</dt><dd id="ec-debug-mode">owner</dd></div>
+      <div><dt>Guest odkaz</dt><dd id="ec-debug-guest-url">—</dd></div>
+      <div><dt>navigator.share</dt><dd id="ec-debug-share">—</dd></div>
+      <div><dt>Clipboard API</dt><dd id="ec-debug-clipboard">—</dd></div>
+      <div><dt>Ikony</dt><dd id="ec-debug-icons">—</dd></div>
+      <div><dt>Posledná akcia</dt><dd id="ec-debug-action">—</dd></div>
+      <div><dt>Motion script</dt><dd id="ec-debug-motion">nenačítaný</dd></div>
+      <div><dt>Storage</dt><dd id="ec-debug-storage">nepoužitý</dd></div>
+    </dl>
+  </aside>
+
+  <script src="assets/js/expresscard-owner.js?v=20260828-owner1"></script>
+</body>
+</html>

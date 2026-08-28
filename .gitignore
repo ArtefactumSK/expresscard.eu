@@ -3,7 +3,8 @@
 /wp-includes/
 /arte-content/uploads/
 /arte-content/cache/
-/images/
+/images/*
+!/images/expressCARD_App.svg
 
 *.dat
 *.txt
