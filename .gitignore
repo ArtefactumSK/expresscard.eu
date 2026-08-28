@@ -1,0 +1,48 @@
+# WordPress core
+/wp-admin/
+/wp-includes/
+/arte-content/uploads/
+/arte-content/cache/
+/images/
+
+*.dat
+*.txt
+
+# Fonty
+*.ttf
+*.woff
+*.woff2
+*.eot
+
+# Backup
+*.bak
+*~
+*.swp
+*.tmp
+
+# Systém
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Archívy
+*.pdf
+*.zip
+*.rar
+*.7z
+
+# Logs
+*.log
+error_log
+
+# Config (citlivé údaje)
+wp-config.php
+.env
+.env.*
+OpenAI_API_*.txt
+*.key
+*.secret
+credentials*.json
+
+# Local tooling (portable PHP, etc.)
+.tools/
