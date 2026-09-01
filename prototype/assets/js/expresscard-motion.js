@@ -20,7 +20,7 @@
        static     — name, copy, system signatures, whole card
 
      Production path (not implemented here):
-       Expressar Core Entitlement/Grant → validated publication config
+       expressar Core Entitlement/Grant → validated publication config
        → allowed motion preset → renderer.
      This file must never infer Solo / Team / Signature from name, URL, or UI.
      ------------------------------------------------------------------ */
@@ -29,7 +29,7 @@
   var POSE_CLAMP = 1;
   var SMOOTH_POINTER = 0.28;
   var SMOOTH_RETURN = 0.18;
-  var ACTION_SHIFT = 1.6;
+  var ACTION_SHIFT = 4.5;
   var ICON_SHIFT = 1.45;
   var BG_SHIFT = 0.85;
   var PROFILE_CLASSES = [
@@ -648,7 +648,7 @@
       if (state === "granted") {
         permissionState = "granted";
         hideEnableButton();
-        announce("Pohyb karty je aktívny.");
+        announce("");
         beginGyroListen("waiting-orientation");
         fillDebug(true);
         return;

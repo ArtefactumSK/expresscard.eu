@@ -35,14 +35,15 @@ prototype/
         └── expresscard-owner.js
 ```
 
-Systémový SVG podpis používa existujúci asset `/images/expressCARD_App.svg`. V Guest mode sú dočasné ikony rýchlych akcií a sociálnych kanálov dekoratívne inline SVG (`aria-hidden`). Nie sú to logo expressCARD. Owner mode **nekreslí** nové SVG; chýbajúce akčné ikony majú textový fallback.
+Systémový SVG podpis používa existujúci asset `/images/expressCARD_App.svg` v päte Guest aj Owner mode (spoločný mechanizmus `.ec-footer__mark`, `data-ec-system-signature="expresscard"`). Horný Guest lockup spája `/images/expressar_icon.svg` s textom `expressCARD`. SVG dodáva používateľ; prototyp ich nevytvára ani neupravuje. Guest rýchle kontakty a sociálne kanály používajú CSS masky dodaných SVG (`core-outline` a `brands`). Tlačidlo **Aktivovať pohyb** používa `assets/icons/sets/core-outline/motion.svg`. Owner mode **nekreslí** nové SVG; chýbajúce akčné ikony majú textový fallback. Spoločné korporátne tokeny (`--ec-brand`, `--ec-brand-soft`, `--ec-brand-border`, `--ec-brand-gradient`, `--ec-brand-on-gradient`) sú zdroj vizuálneho defaultu; Guest ich číta cez `--ec-guest-*`, Owner cez `--ec-owner-*`. Na gradientových Owner tlačidlách majú `:hover` (iba `@media (hover: hover)`) a `:focus-visible` spoločnú farbu textu aj maskovaných SVG ikon `var(--ec-owner-brand)`.
 
 Relatívne cesty (`assets/css/...`, `assets/js/...`) sú pripravené pre lokálne overenie aj budúce testovacie umiestnenie `/preview/`.
 
 Cache verzie assetov:
 
-- Guest: `index.html` → `?v=20260828-struct1`
-- Owner: `owner.html` → `?v=20260828-owner1`
+- Guest CSS: `index.html` → `?v=20260829-motion-icon1`
+- Guest JS: `expresscard-motion.js?v=20260829-motion-icon1`
+- Owner: `owner.html` → CSS/JS `?v=20260829-guest-default1`
 
 ## Ako otvoriť lokálne
 
@@ -91,9 +92,9 @@ Priame deti `#ec-card` typu `section` sú presne tri. Výšku tvorí obsah; CSS 
 
 | Sekcia | Povrch | Moduly |
 |--------|--------|--------|
-| Horná | transparentný | fotografia, identita (meno, pozícia, firma, claim), primárne CTA, rýchle kontakty |
-| Stredná | jemný krémový gradient, opacity iba na povrchu | predstavenie, služby, kontaktné údaje, sekundárne CTA |
-| Dolná | jemný chladný povrch kompatibilný s kartou | sociálne kanály, nefunkčný náhľad „Vymeniť si kontakt“, záverečná poznámka |
+| Horná | transparentný | fotografia, identita, primárne CTA, rýchle kontakty, sociálne kanály |
+| Stredná | jemný krémový gradient, opacity iba na povrchu | predstavenie bez nadpisu, toggle Služby, toggle Kontakt |
+| Dolná | jemný chladný povrch kompatibilný s kartou | nefunkčný náhľad „Vymeniť si kontakt“, záverečná poznámka |
 
 Tvarovaný prechod je **jedna** CSS elipsa na hornom okraji strednej sekcie. Nie je používateľské SVG, nie je samostatne animovaný a sedí v odsadení medzi modulmi, nie cez text.
 
@@ -128,9 +129,8 @@ Prázdne produkčné placeholdery sa nezobrazujú. Telefón, e-mail, sociálne k
 | Odkaz na web `artefactum.sk` | reálny odkaz na verejný web |
 | CTA **Pridať do kontaktov** | vizuálna maketa, VCF sa nestiahne |
 | **Zavolať** / **E-mail** | vizuálne akcie s neaktívnymi demo hodnotami |
-| **Napísať e-mail** | vizuálna maketa, nič sa neodosiela |
 | **Vymeniť si kontakt** | iba označený nefunkčný náhľad, bez formulára |
-| Sociálne kanály | kontrolovaný vizuálny komponent, bez reálnych profilov |
+| Sociálne kanály | kontrolovaný vizuálny komponent pod rýchlymi kontaktmi, bez reálnych profilov |
 | Owner mode | samostatný statický prototyp `owner.html`, nie súčasť Guest karty |
 | Editor, produkčný QR renderer, Wallet, PWA, analytika | mimo rozsahu |
 
@@ -221,7 +221,7 @@ Súbor `expresscard-motion.js` je jeden koordinátor, nie sada nezávislých ani
 | Vizuálny výstup | CSS custom properties podľa roly |
 | Globálne pravidlá | `prefers-reduced-motion`, visibility, odpojenie listenerov |
 
-JavaScript **nerozoznáva** Solo / Team / Signature. Tuning `?motion=` je iba prototypová deklarácia. Produkčný tok ostáva: Expressar Core Entitlement/Grant → validovaná publikačná konfigurácia → renderer.
+JavaScript **nerozoznáva** Solo / Team / Signature. Tuning `?motion=` je iba prototypová deklarácia. Produkčný tok ostáva: expressar Core Entitlement/Grant → validovaná publikačná konfigurácia → renderer.
 
 ### iPhone / iPad — tlačidlo „Aktivovať pohyb“
 
@@ -232,8 +232,9 @@ Preto:
 - permission dialóg sa **nespustí automaticky** pri načítaní,
 - malé tlačidlo **Aktivovať pohyb** sa zobrazí len tam, kde je `requestPermission` skutočne potrebné,
 - tlačidlo nie je hlavné CTA a nekonkuruje **Pridať do kontaktov**,
-- po `granted` sa aktivuje `mobile-gyro`,
-- po `denied`, chybe alebo timeout-e ostane bezpečný mobilný fallback,
+- po `granted` sa aktivuje `mobile-gyro` bez viditeľnej hlášky „Pohyb karty je aktívny.“; live region sa vyčistí,
+- tlačidlo **Aktivovať pohyb** používa dodanú ikonu `assets/icons/sets/core-outline/motion.svg`,
+- po `denied`, chybe alebo timeout-e ostane bezpečný mobilný fallback a príslušná chybová hláška,
 - pri `prefers-reduced-motion` sa tlačidlo nezobrazí.
 
 Na Androide (Chrome bez `requestPermission`) sa tlačidlo **nemá** zobrazovať. Listener sa pripojí a profil `mobile-gyro` sa zapne až po prvých platných číslach.
@@ -351,53 +352,40 @@ Motion tokeny sa zapisujú do existujúceho `:root` CSS pravidla, nie do atribú
 - Celá karta alebo meno sa nakláňa → **kritická chyba** Motion rolí.
 - CTA alebo ikony rotujú / utekajú pred dotykom → príliš silný action/icon token.
 - Tvarovaný prechod prekrýva text → zlyhanie odsadenia sekcie.
-- Ak nie sú aplikované štýly, problém je cesta k CSS (`assets/css/expresscard-prototype.css?v=20260828-struct1`).
-- Ak karta funguje, ale Motion vôbec nenaštartuje, skontrolovať JS (`assets/js/expresscard-motion.js?v=20260828-struct1`).
+- Ak nie sú aplikované štýly, problém je cesta k CSS (`assets/css/expresscard-prototype.css?v=20260829-motion-icon1`).
+- Ak karta funguje, ale Motion vôbec nenaštartuje, skontrolovať JS (`assets/js/expresscard-motion.js?v=20260829-motion-icon1`).
 
 ## Owner mode prototyp
 
-`owner.html` je **prvý statický, mobilne orientovaný Owner mode**. Nie je druhá karta, editor, CRM ani produkčný prístup vlastníka.
+`owner.html` je **statický, mobilne orientovaný Owner mode**. Nie je druhá karta, editor, CRM ani produkčný prístup vlastníka.
 
-Owner mode preberá tú istú ukážkovú identitu ako Guest (`Alexander Smart` / Artefactum s.r.o., jasne označené ako prototypové dáta) a ten istý ukážkový verejný Guest odkaz:
-
-```text
-https://expresscard.eu/alexander-smart
-```
-
-QR, **Zdieľať** a **Kopírovať odkaz** smerujú výhradne na tento verejný odkaz. Owner credential, token, prihlásenie, cookies ani úložisko prehliadača **nie sú** implementované a nesmú sa predstierať.
+Owner mode preberá identitu vybranej ukážkovej karty a jej verejný Guest odkaz. Predvolená karta je **AF – Artefactum** (`https://expresscard.eu/alexander-smart`). QR, **Zdieľať** a **Kopírovať** vždy používajú verejný Guest odkaz aktívnej karty. Owner credential, token, prihlásenie, cookies ani úložisko prehliadača **nie sú** implementované.
 
 Owner CSS je namespacované cez `.ec-owner` v tom istom súbore `expresscard-prototype.css`. Nový CSS súbor nevznikol. `expresscard-motion.js` sa v Owner mode **nenačítava**.
 
 ### Informačná architektúra
 
-1. Systémová hlavička — podpis `expressCARD`, označenie „Moja karta“, prototypové **Zavrieť**.
-2. Kompaktná identita — fotografia/placeholder, meno, pozícia, firma, názov karty, stav Publikovaná, odkaz na verejnú kartu.
-3. Dominantný QR blok — rozmerovo definovaný placeholder „Dynamický QR – produkčný renderer“, nie falošný QR.
-4. Primárne akcie — **Zdieľať**, **Kopírovať odkaz**, **Otvoriť Guest mode** (dotykové ciele min. 44 × 44 px).
-5. Ďalšie akcie — VCF (neaktívna ukážka), **Upraviť kartu** → `https://expressar.eu/`, **Náhľad verejnej karty**.
-6. Stav a kontakty — publikovaná karta, označený ukážkový počet nových kontaktov, **Zobraziť kontakty** ako budúca funkcia.
+1. Centrovaná hlavička **Moja expressCARD**.
+2. Prepínač **Moje karty** — centrovaná skupina troch dlaždíc (AS, AF, EX) s firemnými tokenmi.
+3. Centrovaná identita — fotografia/monogram, meno, pozícia, firma.
+4. QR placeholder a informatívna verejná URL.
+5. Jeden riadok troch kruhových akcií — **Verejná karta**, **Zdieľať**, **Kopírovať**.
+6. Podmienená akcia **Získané kontakty (n)** — firemné centrované CTA, prototypový modal.
+7. **Správa expressCARD** — sekundárny prototypový odkaz na úvodnú stránku expressar.eu.
+8. Povinný systémový podpis `/images/expressCARD_App.svg` v päte (nie odkaz, bez Motion).
 
-Kontextové QR, pomenovaný kontext zdieľania, analytika, follow-up a plná správa kontaktov **nie sú** na obrazovke. Sú to budúce rozšírenia.
+Normálny stav „Publikovaná“ sa nezobrazuje. Kontextové QR, analytika, follow-up, VCF a plná správa kontaktov **nie sú** na obrazovke.
 
-### Rozdiel Guest vs Owner
+### Prepínač kariet
 
-| | Guest (`index.html`) | Owner (`owner.html`) |
-|--|----------------------|----------------------|
-| Účel | prezentačná karta pre príjemcu | praktické ovládanie pre majiteľa |
-| Identita | Alexander Smart (ukážka) | tá istá identita, kompaktne |
-| `#ec-card` | áno | nie |
-| Motion System | `expresscard-motion.js` | nenačítaný |
-| QR | mimo rozsahu Guest | dominantný placeholder na Guest URL |
-| Zdieľanie | nie | Share / copy verejného Guest odkazu |
-| Editor | nie | iba odkaz na budúci editor na expressar.eu |
+Tri prototypové karty sú izolované dáta v `expresscard-owner.js`, nie produkčný JSON kontrakt. Prepnutie atomicky aktualizuje dlaždicu, identitu, Guest URL, QR popis, počet neprečítaných kontaktov a viditeľnosť náhľadov. Vybraná karta ostáva v korporátnom gradiente s iniciálami. Nevybraná karta zobrazí `thumbnail`, ak existuje; inak dočasný odstrániteľný monogram (`data-temporary-fallback="monogram"`). V aktuálnom prototýpe žiadny náhľadový rastrový súbor ku kartám nie je dodaný.
 
 ### Share, Clipboard a fallbacky
 
-- `navigator.share` zdieľa iba verejný Guest odkaz. Ak API chýba, použije sa kopírovanie.
+- `navigator.share` zdieľa iba verejný Guest odkaz aktívnej karty. Ak API chýba, použije sa kopírovanie.
 - Clipboard API skopíruje ten istý verejný odkaz. Ak zlyhá alebo chýba, zobrazí sa pole na ručné označenie.
 - Zrušenie systémového zdieľania (`AbortError`) nesmie ticho spustiť kopírovanie ako chybu.
-- Bez JavaScriptu ostávajú identita, QR priestor, verejný odkaz a otvorenie Guest karty čitateľné.
-- Texty sú v slovenčine. Vlastný prekladový engine SK/EN/CS/DE nie je súčasťou tohto prototypu.
+- Bez JavaScriptu ostávajú identita predvolenej karty, QR priestor, verejný odkaz a otvorenie Guest karty čitateľné.
 
 ### Owner DEBUG
 
@@ -405,62 +393,39 @@ Kontextové QR, pomenovaný kontext zdieľania, analytika, follow-up a plná spr
 owner.html?debug=1
 ```
 
-Panel ukazuje viewport, režim `owner`, verejný Guest odkaz, dostupnosť Share a Clipboard API, ikonový set alebo `text-fallback`, poslednú akciu, `motion script: nenačítaný` a `storage: nepoužitý`. Bez `?debug=1` panel nie je viditeľný.
+Panel ukazuje viewport, režim `owner`, aktívnu kartu, Guest odkaz, neprečítané kontakty, stav modalu, Share/Clipboard, ikonový set, chýbajúce SVG, poslednú akciu, `motion script: nenačítaný` a `storage: nepoužitý`. Bez `?debug=1` panel nie je viditeľný.
 
 ### Owner konzolové testy
 
-TEST 1 — Owner existuje, Guest karta nie:
+TEST 1 — centrovanie `.ec-owner` (ľavý a pravý voľný priestor na desktope takmer zhodný).
 
-```javascript
-({
-  owner: document.body.classList.contains('ec-owner'),
-  guestCardExists: Boolean(document.querySelector('#ec-card'))
-})
-```
+TEST 2 — hlavička „Moja expressCARD“, bez Zavrieť, bez „Karta je publikovaná.“, bez „Otvoriť Guest mode“.
 
-Očakávanie: `owner: true`, `guestCardExists: false`
+TEST 3 — tri položky `[data-owner-card-switch]`, predvolene `AF` s `aria-current="true"`, `border-radius: 0 9px 0 9px`.
 
-TEST 2 — Motion skript nie je načítaný:
+TEST 4 — klik na `AS` atomicky vymení Guest URL aj počet kontaktov.
 
-```javascript
-[...document.scripts]
-  .map(script => script.src)
-  .filter(Boolean)
-  .some(src => src.includes('expresscard-motion'))
-```
+TEST 5 — akcie `share`, `copy-link`, `open-public`, `manage-card` s predpísanými SVG cestami a výškou ≥ 48 px.
 
-Očakávanie: `false`
+TEST 6 — nové kontakty a prístupný `dialog`; po zatvorení akcia zmizne.
 
-TEST 3 — jediný zdieľaný cieľ je verejný Guest odkaz:
+TEST 7 — odstránené sekcie „Ďalšie akcie“, „Stav a kontakty“, VCF a náhľad.
 
-```javascript
-({
-  guestUrl: document.querySelector('[data-guest-url]')?.dataset.guestUrl,
-  ownerSecrets: [...document.querySelectorAll('[data-owner-token], [data-private-link], [data-owner-secret]')].length
-})
-```
-
-TEST 4 — primárne akcie `share`, `copy-link`, `open-guest` so slovenským textom a výškou ≥ 44 px.
-
-TEST 5 — chýbajúce ikony majú textový fallback.
-
-TEST 6 — `inlineStyles: 0`, `inlineScripts: 0`.
-
-TEST 7 — v Owner HTML/JS/CSS nie sú aktívne zápisy do úložiska prehliadača.
+TEST 8 — bez Motion skriptu, bez inline CSS/JS, bez owner secret atribútov, bez storage.
 
 ### Owner manuálny checklist
 
-- [ ] Obrazovka je jedna pokojná mobilná karta, nie WordPress admin.
-- [ ] Identita je kompaktná; vo vnútri Owner mode nie je druhá Guest karta.
-- [ ] QR priestor je veľký štvorec s bielou ochrannou zónou a označeným placeholderom.
-- [ ] **Zdieľať** / **Kopírovať odkaz** / **Otvoriť Guest mode** sú najväčšie akcie a majú min. 44 px výšku.
-- [ ] Skopírovaný a zdieľaný cieľ je iba `https://expresscard.eu/alexander-smart`.
-- [ ] **Upraviť kartu** otvára `https://expressar.eu/`, nie interný editor.
-- [ ] VCF a kontakty sú označené ako neaktívne / budúce.
+- [ ] Owner obal je na desktope v strede viewportu rovnako ako Guest karta.
+- [ ] Hlavička je iba **Moja expressCARD**; tlačidlo Zavrieť neexistuje.
+- [ ] Prepínač troch kariet posúva údaje atomicky; EX skryje kontakty (0).
+- [ ] Guest mode sa otvára iba cez kruhovú akciu **Verejná karta**.
+- [ ] Tri kruhové akcie sú centrované a neprekrývajú sa na 320 px.
+- [ ] **Správa expressCARD** otvára `https://expressar.eu/`.
+- [ ] Modal kontaktov sa zatvára Escape, pozadím aj tlačidlom **Zavrieť zoznam**.
 - [ ] Bez `?debug=1` diagnostický panel nie je viditeľný.
 - [ ] Guest `index.html` ostáva otvoriteľný a Motion sa tam načítava.
 
-Budúce rozšírenia (nie v tomto prototype): kontextové QR, pomenovaný kontext zdieľania, analytika, follow-up, plná správa kontaktov, produkčný QR renderer, VCF, owner credential.
+Budúce rozšírenia (nie v tomto prototype): kontextové QR, pomenovaný kontext zdieľania, analytika, follow-up, plná správa kontaktov v klientskom UI, produkčný QR renderer, VCF, owner credential.
 
 ## Manuálny checklist
 
@@ -528,7 +493,7 @@ Tento prototyp **nesmie** byť v tejto fáze:
 
 - nasadený do koreňa aktívnej domény,
 - označený ako produkčný renderer alebo šablóna,
-- prepojený s WordPressom, Expressar Core, PHP, databázou, API alebo pluginom `_expressar-card`.
+- prepojený s WordPressom, expressar Core, PHP, databázou, API alebo pluginom `_expressar-card`.
 
 ## Budúce podklady
 
