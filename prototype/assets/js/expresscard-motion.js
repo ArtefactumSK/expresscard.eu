@@ -20,7 +20,7 @@
        static     — name, copy, system signatures, whole card
 
      Production path (not implemented here):
-       expressar Core Entitlement/Grant → validated publication config
+       Expressar Core Entitlement/Grant → validated publication config
        → allowed motion preset → renderer.
      This file must never infer Solo / Team / Signature from name, URL, or UI.
      ------------------------------------------------------------------ */
