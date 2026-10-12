@@ -1,0 +1,24 @@
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteBase /
+
+# Product landing: root and the four explicit language routes.
+RewriteRule ^$ index.php [L,QSA]
+RewriteRule ^(?:sk|cz|en|de)/?$ index.php [L,QSA]
+
+# Owner mode (activate, API, hub) — before generic card slug routing.
+RewriteRule ^owner(?:/.*)?$ index.php [L,QSA]
+
+# Existing files and directories (prototype, assets, favicon, …)
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Pretty URL: technicke public_id alebo friendly slug.
+RewriteRule ^[a-z0-9]+(?:-[a-z0-9]+)*/?$ index.php [L,QSA]
+</IfModule>
+
+# Publication packages must live outside this document root (see project docs).
+# Do not rely on a folder named "cards" here — cards_root is configured in publication-config.php.
