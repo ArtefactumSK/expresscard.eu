@@ -931,6 +931,473 @@ function ex_public_contact_exchange_enrich_recipient( $current_real, array &$run
 const EX_PUBLIC_OWNER_COOKIE = 'excard_owner_sess';
 const EX_PUBLIC_OWNER_CHALLENGE_COOKIE = 'excard_owner_chl';
 const EX_PUBLIC_OWNER_PREF_COOKIE      = 'excard_owner_pref';
+const EX_PUBLIC_UI_LANG_COOKIE         = 'excard_ui_lang';
+
+/**
+ * @return array<string, string> Route slug => dictionary key (contact-exchange.json).
+ */
+function ex_public_owner_lang_route_map() {
+	return array(
+		'sk' => 'sk',
+		'cz' => 'cs',
+		'en' => 'en',
+		'de' => 'de',
+	);
+}
+
+/**
+ * @param string $raw Route or dict key.
+ * @return string sk|cs|en|de or empty.
+ */
+function ex_public_owner_normalize_dict_key( $raw ) {
+	$key = strtolower( trim( (string) $raw ) );
+	if ( 'cz' === $key ) {
+		return 'cs';
+	}
+	if ( in_array( $key, array( 'sk', 'cs', 'en', 'de' ), true ) ) {
+		return $key;
+	}
+
+	return '';
+}
+
+/**
+ * @param string $dict Dictionary key.
+ * @return string Route slug sk|cz|en|de.
+ */
+function ex_public_owner_dict_to_route( $dict ) {
+	$map = array_flip( ex_public_owner_lang_route_map() );
+
+	return isset( $map[ $dict ] ) ? (string) $map[ $dict ] : 'sk';
+}
+
+/**
+ * @return string
+ */
+function ex_public_owner_accept_language_dict() {
+	$header = isset( $_SERVER['HTTP_ACCEPT_LANGUAGE'] ) ? (string) $_SERVER['HTTP_ACCEPT_LANGUAGE'] : '';
+	foreach ( explode( ',', $header ) as $part ) {
+		$token = strtolower( trim( (string) strtok( $part, ';' ) ) );
+		$primary = strtok( $token, '-' );
+		if ( ! is_string( $primary ) ) {
+			continue;
+		}
+		$dict = ex_public_owner_normalize_dict_key( $primary );
+		if ( '' !== $dict ) {
+			return $dict;
+		}
+	}
+
+	return 'sk';
+}
+
+/**
+ * @return array{dict:string,route:string,html_lang:string,locale:string}
+ */
+function ex_public_owner_resolve_lang() {
+	$routes    = ex_public_owner_lang_route_map();
+	$dict      = '';
+	$set_cookie = false;
+	if ( isset( $_GET['lang'] ) ) {
+		$route = strtolower( trim( (string) $_GET['lang'] ) );
+		if ( isset( $routes[ $route ] ) ) {
+			$dict       = $routes[ $route ];
+			$set_cookie = true;
+		}
+	}
+	if ( '' === $dict && isset( $_COOKIE[ EX_PUBLIC_UI_LANG_COOKIE ] ) && is_string( $_COOKIE[ EX_PUBLIC_UI_LANG_COOKIE ] ) ) {
+		$dict = ex_public_owner_normalize_dict_key( $_COOKIE[ EX_PUBLIC_UI_LANG_COOKIE ] );
+	}
+	if ( '' === $dict ) {
+		$dict = ex_public_owner_accept_language_dict();
+	}
+	if ( '' === $dict ) {
+		$dict = 'sk';
+	}
+	if ( $set_cookie && ! headers_sent() ) {
+		setcookie(
+			EX_PUBLIC_UI_LANG_COOKIE,
+			$dict,
+			array(
+				'expires'  => time() + 31536000,
+				'path'     => '/',
+				'secure'   => ex_public_owner_cookie_secure(),
+				'httponly' => false,
+				'samesite' => 'Lax',
+			)
+		);
+	}
+	$locale = 'sk-SK';
+	if ( 'cs' === $dict ) {
+		$locale = 'cs-CZ';
+	} elseif ( 'en' === $dict ) {
+		$locale = 'en-US';
+	} elseif ( 'de' === $dict ) {
+		$locale = 'de-DE';
+	}
+
+	return array(
+		'dict'      => $dict,
+		'route'     => ex_public_owner_dict_to_route( $dict ),
+		'html_lang' => $dict,
+		'locale'    => $locale,
+	);
+}
+
+/**
+ * @param string $dict_key sk|cs|en|de.
+ * @return array<string, string>
+ */
+function ex_public_owner_strings( $dict_key ) {
+	$dict_key = ex_public_owner_normalize_dict_key( $dict_key );
+	if ( '' === $dict_key ) {
+		$dict_key = 'sk';
+	}
+	$root = ex_public_realpath_root( __DIR__ );
+	if ( false === $root ) {
+		return array();
+	}
+	$file = ex_public_realpath_file_in_root( $root . '/lang/contact-exchange.json', $root );
+	if ( false === $file ) {
+		return array();
+	}
+	$raw  = file_get_contents( $file );
+	$data = is_string( $raw ) ? json_decode( $raw, true ) : null;
+	if ( ! is_array( $data ) ) {
+		return array();
+	}
+	$bucket = isset( $data[ $dict_key ]['owner'] ) && is_array( $data[ $dict_key ]['owner'] ) ? $data[ $dict_key ]['owner'] : array();
+	$base   = isset( $data[ $dict_key ] ) && is_array( $data[ $dict_key ] ) ? $data[ $dict_key ] : array();
+	foreach ( array( 'close', 'cancel' ) as $inherit_key ) {
+		if ( ! isset( $bucket[ $inherit_key ] ) && isset( $base[ $inherit_key ] ) && is_string( $base[ $inherit_key ] ) ) {
+			$bucket[ $inherit_key ] = $base[ $inherit_key ];
+		}
+	}
+	if ( ! empty( $bucket ) ) {
+		return $bucket;
+	}
+	if ( isset( $data['sk']['owner'] ) && is_array( $data['sk']['owner'] ) ) {
+		return $data['sk']['owner'];
+	}
+
+	return array();
+}
+
+/**
+ * @param array<string, string> $strings Owner dictionary.
+ * @param string                $key     Key.
+ * @param string                $fallback Fallback.
+ * @return string
+ */
+function ex_public_owner_t( array $strings, $key, $fallback = '' ) {
+	$key = (string) $key;
+	if ( isset( $strings[ $key ] ) && is_string( $strings[ $key ] ) ) {
+		return $strings[ $key ];
+	}
+
+	return (string) $fallback;
+}
+
+/**
+ * Graphical modal close control (Owner panels / logout dialog).
+ *
+ * @param array<string, string> $strings Owner dictionary.
+ * @return string
+ */
+function ex_public_owner_modal_close_btn_html( array $strings, $data_attr = 'data-ex-owner-modal-close' ) {
+	$label = ex_public_owner_t( $strings, 'close', 'Zavrieť' );
+	$attr  = preg_replace( '/[^a-z0-9_-]/', '', (string) $data_attr );
+	if ( '' === $attr ) {
+		$attr = 'data-ex-owner-modal-close';
+	}
+
+	return '<button type="button" class="ex-public-owner-app__modal-close" ' . $attr . ' aria-label="' . htmlspecialchars( $label, ENT_QUOTES, 'UTF-8' ) . '"><span class="ex-public-owner-app__modal-close-glyph" aria-hidden="true"></span></button>';
+}
+
+/**
+ * @param array<string, mixed> $bg       owner_presentation.background.
+ * @param array<string, mixed> $manifest Package manifest.
+ * @param string               $segment  URL segment (slug or public_id).
+ * @return array{style:string,contrast:string}
+ */
+function ex_public_owner_body_background_from_manifest( array $bg, array $manifest, $segment ) {
+	$style_parts = array();
+	$contrast    = 'complex';
+	$bg_type     = isset( $bg['type'] ) ? (string) $bg['type'] : '';
+
+	if ( 'image' === $bg_type && isset( $bg['asset'] ) && is_string( $bg['asset'] ) ) {
+		$allowed_bg = ex_public_manifest_asset_path( $manifest, (string) $bg['asset'] );
+		if ( null !== $allowed_bg ) {
+			$bg_url        = '/' . rawurlencode( $segment ) . '?asset=' . rawurlencode( $allowed_bg );
+			$px            = isset( $bg['position_x'] ) ? max( 0, min( 100, (int) $bg['position_x'] ) ) : 50;
+			$py            = isset( $bg['position_y'] ) ? max( 0, min( 100, (int) $bg['position_y'] ) ) : 50;
+			$zoom          = isset( $bg['zoom_percent'] ) ? max( 100, min( 300, (int) $bg['zoom_percent'] ) ) : 100;
+			$fit_raw       = isset( $bg['fit'] ) ? strtolower( preg_replace( '/[^a-z0-9_-]/', '', (string) $bg['fit'] ) ) : 'cover';
+			$fit           = '' !== $fit_raw ? $fit_raw : 'cover';
+			$size          = 'cover';
+			if ( 'contain' === $fit ) {
+				$size = 'contain';
+			} elseif ( 'fill' === $fit ) {
+				$size = '100% 100%';
+			} elseif ( $zoom > 100 ) {
+				$size = $zoom . '%';
+			}
+			$style_parts[] = 'background-image:url(' . $bg_url . ')';
+			$style_parts[] = 'background-size:' . $size;
+			$style_parts[] = 'background-position:' . $px . '% ' . $py . '%';
+			$style_parts[] = 'background-repeat:no-repeat';
+			if ( isset( $bg['background_opacity'] ) ) {
+				$op = max( 0, min( 100, (int) $bg['background_opacity'] ) );
+				if ( $op < 100 ) {
+					$style_parts[] = '--ex-owner-bg-opacity:' . ( $op / 100 );
+				}
+			}
+			if ( isset( $bg['overlay_color'], $bg['overlay_opacity'] ) ) {
+				$oc = trim( (string) $bg['overlay_color'] );
+				$oo = max( 0, min( 100, (int) $bg['overlay_opacity'] ) );
+				if ( preg_match( '/^#[0-9a-fA-F]{3,8}$/', $oc ) && $oo > 0 ) {
+					$style_parts[] = '--ex-owner-overlay-color:' . $oc;
+					$style_parts[] = '--ex-owner-overlay-opacity:' . ( $oo / 100 );
+				}
+			}
+		}
+	} elseif ( 'gradient' === $bg_type && ! empty( $bg['colors'] ) && is_array( $bg['colors'] ) ) {
+		$colors = array();
+		foreach ( $bg['colors'] as $color ) {
+			$c = trim( (string) $color );
+			if ( preg_match( '/^#[0-9a-fA-F]{3,8}$/', $c ) ) {
+				$colors[] = $c;
+			}
+		}
+		if ( count( $colors ) >= 2 ) {
+			$angle = isset( $bg['angle'] ) ? (int) $bg['angle'] : 180;
+			$stops = array();
+			$last  = count( $colors ) - 1;
+			foreach ( $colors as $index => $color ) {
+				$percent  = 0 === $last ? 0 : (int) round( ( $index / $last ) * 100 );
+				$stops[]  = $color . ' ' . $percent . '%';
+			}
+			$style_parts[] = 'background-image:linear-gradient(' . $angle . 'deg,' . implode( ',', $stops ) . ')';
+			if ( isset( $manifest['owner_presentation']['brand_contrast'] ) ) {
+				$contrast = strtolower( preg_replace( '/[^a-z0-9_-]/', '', (string) $manifest['owner_presentation']['brand_contrast'] ) );
+			}
+		}
+	} elseif ( 'color' === $bg_type && isset( $bg['value'] ) ) {
+		$color = trim( (string) $bg['value'] );
+		if ( preg_match( '/^#[0-9a-fA-F]{3,8}$/', $color ) ) {
+			$style_parts[] = 'background-color:' . $color;
+			if ( isset( $manifest['owner_presentation']['brand_contrast'] ) ) {
+				$contrast = strtolower( preg_replace( '/[^a-z0-9_-]/', '', (string) $manifest['owner_presentation']['brand_contrast'] ) );
+			}
+		}
+	}
+
+	if ( isset( $manifest['owner_presentation']['brand_contrast'] ) ) {
+		$manifest_contrast = strtolower( preg_replace( '/[^a-z0-9_-]/', '', (string) $manifest['owner_presentation']['brand_contrast'] ) );
+		if ( in_array( $manifest_contrast, array( 'light', 'dark', 'complex' ), true ) ) {
+			$contrast = $manifest_contrast;
+		}
+	}
+
+	return array(
+		'style'    => implode( ';', $style_parts ) . ( $style_parts ? ';' : '' ),
+		'contrast' => $contrast,
+	);
+}
+
+/**
+ * Rich-text brand token: <i>express</i> + CARD (Owner UI only).
+ *
+ * @return string Safe HTML fragment.
+ */
+function ex_public_owner_brand_html() {
+	return '<span class="ex-public-owner-brand" lang="en"><i class="ex-public-owner-brand__express">express</i><span class="ex-public-owner-brand__card">CARD</span></span>';
+}
+
+/**
+ * @param string $variant Glyph key (maps to CSS modifier).
+ * @return string
+ */
+function ex_public_owner_glyph_html( $variant ) {
+	$variant = preg_replace( '/[^a-z0-9_-]/', '', strtolower( (string) $variant ) );
+	if ( '' === $variant ) {
+		return '';
+	}
+
+	return '<span class="ex-public-owner-app__glyph ex-public-owner-app__glyph--' . htmlspecialchars( $variant, ENT_QUOTES, 'UTF-8' ) . '" aria-hidden="true"></span>';
+}
+
+/**
+ * Public site origin for absolute manifest icon URLs.
+ *
+ * @param array<string, mixed> $config Publication config.
+ * @return string
+ */
+function ex_public_owner_site_origin( array $config ) {
+	$base = isset( $config['public_base_url'] ) ? trim( (string) $config['public_base_url'] ) : '';
+	if ( '' === $base ) {
+		return 'https://expresscard.eu';
+	}
+
+	return rtrim( $base, '/' );
+}
+
+/**
+ * @return string
+ */
+function ex_public_owner_pwa_head_markup() {
+	return '<link rel="manifest" href="/owner/app.webmanifest"><link rel="apple-touch-icon" href="/images/expresscard-home-180.png">';
+}
+
+/**
+ * Sanitized UI-only setup query (?setup=homescreen).
+ *
+ * @return string homescreen or empty.
+ */
+function ex_public_owner_sanitize_setup_query() {
+	if ( ! isset( $_GET['setup'] ) ) {
+		return '';
+	}
+	$value = strtolower( trim( (string) $_GET['setup'] ) );
+
+	return 'homescreen' === $value ? 'homescreen' : '';
+}
+
+/**
+ * @return bool
+ */
+function ex_public_owner_setup_hint_active() {
+	return 'homescreen' === ex_public_owner_sanitize_setup_query();
+}
+
+/**
+ * Query params preserved across Owner navigation (UI only).
+ *
+ * @return array<string, string>
+ */
+function ex_public_owner_query_passthrough() {
+	$query = array();
+	if ( ex_public_owner_setup_hint_active() ) {
+		$query['setup'] = 'homescreen';
+	}
+
+	return $query;
+}
+
+/**
+ * @param array<string, string> $strings Owner dictionary.
+ * @param string                $prefix_key        Key for translatable prefix before brand.
+ * @param string                $fallback          Fallback prefix.
+ * @param string                $suffix_key        Optional key for text after brand (e.g. DE verb).
+ * @param string                $suffix_fallback   Fallback suffix.
+ * @return string HTML safe for echo inside buttons/headings.
+ */
+function ex_public_owner_label_with_brand_html( array $strings, $prefix_key, $fallback, $suffix_key = '', $suffix_fallback = '' ) {
+	$prefix = ex_public_owner_t( $strings, $prefix_key, $fallback );
+	$suffix = '' !== $suffix_key ? ex_public_owner_t( $strings, $suffix_key, $suffix_fallback ) : '';
+
+	return htmlspecialchars( $prefix, ENT_QUOTES, 'UTF-8' ) . ex_public_owner_brand_html() . htmlspecialchars( $suffix, ENT_QUOTES, 'UTF-8' );
+}
+
+/**
+ * @param string               $card_ref Route ref.
+ * @param array<string, mixed> $lang_ctx Language context.
+ * @return string
+ */
+function ex_public_owner_card_screen_url( $card_ref, array $lang_ctx ) {
+	$url   = '/owner/card/' . rawurlencode( (string) $card_ref );
+	$query = ex_public_owner_query_passthrough();
+	if ( isset( $lang_ctx['route'] ) && '' !== (string) $lang_ctx['route'] ) {
+		$query['lang'] = (string) $lang_ctx['route'];
+	}
+	if ( ! empty( $query ) ) {
+		$url .= '?' . http_build_query( $query );
+	}
+
+	return $url;
+}
+
+/**
+ * Redirect when session has exactly one authorized card.
+ *
+ * @param array<int, mixed>    $cards    Cards from Core.
+ * @param array<string, mixed> $lang_ctx Language context.
+ * @return void
+ */
+function ex_public_owner_redirect_if_single_card( array $cards, array $lang_ctx ) {
+	if ( 1 !== count( $cards ) ) {
+		return;
+	}
+	$card = $cards[0];
+	if ( ! is_array( $card ) ) {
+		return;
+	}
+	$ref = ex_public_owner_card_route_ref( $card );
+	if ( '' === $ref ) {
+		return;
+	}
+	header( 'Location: ' . ex_public_owner_card_screen_url( $ref, $lang_ctx ), true, 302 );
+	exit;
+}
+
+/**
+ * Owner frame stylesheet with cache-busting when the file exists on disk.
+ *
+ * @param array<string, mixed> $config Site config.
+ * @return string
+ */
+function ex_public_owner_frame_css_href( array $config ) {
+	$href = isset( $config['frame_css'] ) ? (string) $config['frame_css'] : '/assets/css/expresscard-public.css';
+	if ( '' === $href || false !== strpos( $href, '?' ) ) {
+		return $href;
+	}
+	$root = ex_public_realpath_root( __DIR__ );
+	if ( false === $root ) {
+		return $href;
+	}
+	$rel  = ltrim( $href, '/' );
+	$file = ex_public_realpath_file_in_root( $root . '/' . $rel, $root );
+	if ( false === $file ) {
+		return $href;
+	}
+	$mtime = filemtime( $file );
+	if ( false === $mtime ) {
+		return $href;
+	}
+
+	return $href . '?v=' . (string) (int) $mtime;
+}
+
+/**
+ * @param array{route:string} $lang_ctx Language context.
+ * @param string              $path     Path without query, e.g. /owner/ or /owner/card/ref.
+ * @param array<string, string> $extra_query Extra query params.
+ * @return string
+ */
+function ex_public_owner_lang_switcher_markup( array $lang_ctx, $path, array $extra_query = array(), $activate_inpage = false ) {
+	$routes  = array_keys( ex_public_owner_lang_route_map() );
+	$dict    = isset( $lang_ctx['dict'] ) ? (string) $lang_ctx['dict'] : 'sk';
+	$strings = ex_public_owner_strings( $dict );
+	$html    = '<nav class="ex-public-owner-app__lang" aria-label="' . htmlspecialchars( ex_public_owner_t( $strings, 'languageNav', 'Jazyk' ), ENT_QUOTES, 'UTF-8' ) . '">';
+	$first   = true;
+	foreach ( $routes as $route ) {
+		if ( ! $first ) {
+			$html .= '<span class="ex-public-owner-app__lang-sep" aria-hidden="true">·</span>';
+		}
+		$first   = false;
+		$current = ( isset( $lang_ctx['route'] ) && $route === $lang_ctx['route'] ) ? ' aria-current="true"' : '';
+		if ( $activate_inpage ) {
+			$html .= '<a class="ex-public-owner-app__lang-link" href="#" data-ex-owner-lang-route="' . htmlspecialchars( $route, ENT_QUOTES, 'UTF-8' ) . '" lang="' . htmlspecialchars( ex_public_owner_lang_route_map()[ $route ], ENT_QUOTES, 'UTF-8' ) . '"' . $current . '>' . htmlspecialchars( strtoupper( $route ), ENT_QUOTES, 'UTF-8' ) . '</a>';
+		} else {
+			$query = array_merge( $extra_query, array( 'lang' => $route ) );
+			$href  = $path . '?' . http_build_query( $query );
+			$html .= '<a class="ex-public-owner-app__lang-link" href="' . htmlspecialchars( $href, ENT_QUOTES, 'UTF-8' ) . '" lang="' . htmlspecialchars( ex_public_owner_lang_route_map()[ $route ], ENT_QUOTES, 'UTF-8' ) . '"' . $current . '>' . htmlspecialchars( strtoupper( $route ), ENT_QUOTES, 'UTF-8' ) . '</a>';
+		}
+	}
+	$html .= '</nav>';
+
+	return $html;
+}
 
 /**
  * @return bool
@@ -972,21 +1439,27 @@ function ex_public_owner_core_api_base( array $config ) {
 /**
  * @param string               $url  HTTPS URL.
  * @param array<string, mixed> $body JSON body.
- * @return array<string, mixed>|null
+ * @return array{http_code:int,raw:string,json:array<string,mixed>|null,content_type:string}
  */
-function ex_public_owner_core_post_json( $url, array $body ) {
+function ex_public_owner_core_post( $url, array $body ) {
 	$url = (string) $url;
+	$empty = array(
+		'http_code'      => 0,
+		'raw'            => '',
+		'json'           => null,
+		'content_type'   => '',
+	);
 	if ( ! ex_public_owner_allowed_core_url( $url ) ) {
-		return null;
+		return $empty;
 	}
 	$payload = json_encode( $body );
 	if ( ! is_string( $payload ) ) {
-		return null;
+		return $empty;
 	}
 	if ( function_exists( 'curl_init' ) ) {
 		$ch = curl_init( $url );
 		if ( false === $ch ) {
-			return null;
+			return $empty;
 		}
 		curl_setopt_array(
 			$ch,
@@ -1001,14 +1474,25 @@ function ex_public_owner_core_post_json( $url, array $body ) {
 				CURLOPT_SSL_VERIFYHOST => 2,
 			)
 		);
-		$raw = curl_exec( $ch );
+		$raw  = curl_exec( $ch );
 		$code = (int) curl_getinfo( $ch, CURLINFO_HTTP_CODE );
+		$type = (string) curl_getinfo( $ch, CURLINFO_CONTENT_TYPE );
 		curl_close( $ch );
-		if ( ! is_string( $raw ) || $code < 200 || $code >= 300 ) {
-			return null;
+		if ( ! is_string( $raw ) ) {
+			return array(
+				'http_code'    => $code,
+				'raw'          => '',
+				'json'         => null,
+				'content_type' => $type,
+			);
 		}
 		$decoded = json_decode( $raw, true );
-		return is_array( $decoded ) ? $decoded : null;
+		return array(
+			'http_code'    => $code,
+			'raw'          => $raw,
+			'json'         => is_array( $decoded ) ? $decoded : null,
+			'content_type' => $type,
+		);
 	}
 	$ctx = stream_context_create(
 		array(
@@ -1018,6 +1502,7 @@ function ex_public_owner_core_post_json( $url, array $body ) {
 				'content'         => $payload,
 				'timeout'         => 12,
 				'follow_location' => 0,
+				'ignore_errors'   => true,
 			),
 			'ssl'  => array(
 				'verify_peer'      => true,
@@ -1027,10 +1512,403 @@ function ex_public_owner_core_post_json( $url, array $body ) {
 	);
 	$raw = @file_get_contents( $url, false, $ctx ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
 	if ( ! is_string( $raw ) ) {
-		return null;
+		return $empty;
+	}
+	$code = 0;
+	if ( isset( $http_response_header[0] ) && is_string( $http_response_header[0] ) ) {
+		if ( preg_match( '/\s(\d{3})\s/', $http_response_header[0], $matches ) ) {
+			$code = (int) $matches[1];
+		}
 	}
 	$decoded = json_decode( $raw, true );
-	return is_array( $decoded ) ? $decoded : null;
+	return array(
+		'http_code'    => $code,
+		'raw'          => $raw,
+		'json'         => is_array( $decoded ) ? $decoded : null,
+		'content_type' => '',
+	);
+}
+
+/**
+ * @param string               $url  HTTPS URL.
+ * @param array<string, mixed> $body JSON body.
+ * @return array<string, mixed>|null
+ */
+function ex_public_owner_core_post_json( $url, array $body ) {
+	$response = ex_public_owner_core_post( $url, $body );
+	if ( $response['http_code'] < 200 || $response['http_code'] >= 300 ) {
+		return null;
+	}
+
+	return is_array( $response['json'] ) ? $response['json'] : null;
+}
+
+/**
+ * @param array<string, mixed> $card Card row from Core.
+ * @return string
+ */
+function ex_public_owner_card_route_ref( array $card ) {
+	$slug = isset( $card['public_slug'] ) ? trim( (string) $card['public_slug'] ) : '';
+	if ( '' !== $slug && ( ex_public_valid_id( $slug ) || ex_public_valid_slug_segment( $slug ) ) ) {
+		return $slug;
+	}
+	$pid = isset( $card['public_id'] ) ? (string) $card['public_id'] : '';
+	return ex_public_valid_id( $pid ) ? $pid : '';
+}
+
+/**
+ * @param string               $card_ref Route ref.
+ * @param array<int, mixed>    $cards    Session cards.
+ * @param string               $cards_root Cards root.
+ * @return string|false public_id or false.
+ */
+function ex_public_owner_resolve_public_id( $card_ref, array $cards, $cards_root ) {
+	$card_ref = trim( (string) $card_ref );
+	if ( '' === $card_ref ) {
+		return false;
+	}
+	foreach ( $cards as $card ) {
+		if ( ! is_array( $card ) ) {
+			continue;
+		}
+		$pid  = isset( $card['public_id'] ) ? (string) $card['public_id'] : '';
+		$slug = isset( $card['public_slug'] ) ? trim( (string) $card['public_slug'] ) : '';
+		if ( $card_ref === $pid || ( '' !== $slug && $card_ref === $slug ) ) {
+			return ex_public_valid_id( $pid ) ? $pid : false;
+		}
+	}
+	if ( ex_public_valid_id( $card_ref ) ) {
+		return $card_ref;
+	}
+	if ( ex_public_valid_slug_segment( $card_ref ) ) {
+		$resolved = ex_public_resolve_public_id_by_slug( $cards_root, $card_ref );
+		if ( is_string( $resolved ) && ex_public_valid_id( $resolved ) ) {
+			return $resolved;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * @param string $cards_root Cards root.
+ * @param string $public_id  Public id.
+ * @return array{manifest:array<string,mixed>,current_real:string}|null
+ */
+function ex_public_owner_load_package( $cards_root, $public_id ) {
+	if ( ! ex_public_valid_id( $public_id ) ) {
+		return null;
+	}
+	$resolved = ex_public_resolve_current_dir( $cards_root, $public_id );
+	if ( false === $resolved ) {
+		return null;
+	}
+	list( , $current_real ) = $resolved;
+	$manifest_path = $current_real . '/manifest.json';
+	if ( ! is_readable( $manifest_path ) ) {
+		return null;
+	}
+	$raw = file_get_contents( $manifest_path );
+	$manifest = is_string( $raw ) ? json_decode( $raw, true ) : null;
+	if ( ! is_array( $manifest ) || ! ex_public_manifest_is_valid( $manifest, $public_id ) ) {
+		return null;
+	}
+
+	return array(
+		'manifest'     => $manifest,
+		'current_real' => $current_real,
+	);
+}
+
+/**
+ * @param string $name Display name.
+ * @return string
+ */
+function ex_public_owner_initials_from_name( $name ) {
+	$name = trim( strip_tags( (string) $name ) );
+	if ( '' === $name ) {
+		return '';
+	}
+	$parts = preg_split( '/\s+/u', $name );
+	if ( ! is_array( $parts ) ) {
+		return '';
+	}
+	$initials = '';
+	foreach ( $parts as $part ) {
+		$part = trim( (string) $part );
+		if ( '' === $part ) {
+			continue;
+		}
+		if ( function_exists( 'mb_substr' ) ) {
+			$char = mb_substr( $part, 0, 1, 'UTF-8' );
+			$initials .= function_exists( 'mb_strtoupper' ) ? mb_strtoupper( $char, 'UTF-8' ) : strtoupper( $char );
+		} else {
+			$initials .= strtoupper( substr( $part, 0, 1 ) );
+		}
+		if ( strlen( $initials ) >= 2 ) {
+			break;
+		}
+	}
+
+	return substr( $initials, 0, 2 );
+}
+
+/**
+ * @param array<string, mixed> $manifest  Manifest.
+ * @param string               $public_id Public id.
+ * @param string               $base_url  Site base URL.
+ * @param string               $current_real Package dir.
+ * @return array<string, mixed>
+ */
+function ex_public_owner_presentation_from_package( array $manifest, $public_id, $base_url, $current_real ) {
+	$raw = isset( $manifest['owner_presentation'] ) && is_array( $manifest['owner_presentation'] )
+		? $manifest['owner_presentation']
+		: array();
+
+	$display_name = isset( $raw['display_name'] ) ? trim( strip_tags( (string) $raw['display_name'] ) ) : '';
+
+	$vcf_path = ex_public_normalize_path( (string) $current_real . '/vcf-data.json' );
+	if ( is_readable( $vcf_path ) ) {
+		$vcf_raw  = file_get_contents( $vcf_path );
+		$vcf_data = is_string( $vcf_raw ) ? json_decode( $vcf_raw, true ) : null;
+		if ( is_array( $vcf_data ) && '' === $display_name ) {
+			$display_name = trim( (string) ( $vcf_data['display_name'] ?? $vcf_data['fn'] ?? '' ) );
+		}
+	}
+
+	$slug    = ex_public_manifest_public_slug( $manifest );
+	$segment = '' !== $slug ? $slug : (string) $public_id;
+	$photo_rel = '';
+	if ( isset( $raw['profile_photo_asset'] ) && is_string( $raw['profile_photo_asset'] ) ) {
+		$photo_rel = (string) $raw['profile_photo_asset'];
+	} elseif ( isset( $raw['photo_asset'] ) && is_string( $raw['photo_asset'] ) ) {
+		$photo_rel = (string) $raw['photo_asset'];
+	} elseif ( isset( $raw['switch_thumb_asset'] ) && is_string( $raw['switch_thumb_asset'] ) ) {
+		$photo_rel = (string) $raw['switch_thumb_asset'];
+	} elseif ( is_readable( $vcf_path ) ) {
+		$vcf_raw  = file_get_contents( $vcf_path );
+		$vcf_data = is_string( $vcf_raw ) ? json_decode( $vcf_raw, true ) : null;
+		if ( is_array( $vcf_data ) && isset( $vcf_data['photo_asset'] ) ) {
+			$photo_rel = (string) $vcf_data['photo_asset'];
+		}
+	}
+	$photo_url = '';
+	if ( '' !== $photo_rel ) {
+		$allowed = ex_public_manifest_asset_path( $manifest, $photo_rel );
+		if ( null !== $allowed ) {
+			$photo_url = '/' . rawurlencode( $segment ) . '?asset=' . rawurlencode( $allowed );
+		}
+	}
+
+	$public_url  = rtrim( (string) $base_url, '/' ) . '/' . rawurlencode( $segment );
+	$public_host = preg_replace( '#^https?://#i', '', $public_url );
+	if ( ! is_string( $public_host ) ) {
+		$public_host = '';
+	}
+
+	$bg_wrap = ex_public_owner_body_background_from_manifest(
+		isset( $raw['background'] ) && is_array( $raw['background'] ) ? $raw['background'] : array(),
+		$manifest,
+		$segment
+	);
+
+	return array(
+		'display_name'          => $display_name,
+		'photo_url'             => $photo_url,
+		'public_url'            => $public_url,
+		'public_host'           => $public_host,
+		'body_background_style' => isset( $bg_wrap['style'] ) ? (string) $bg_wrap['style'] : '',
+		'brand_contrast'        => isset( $bg_wrap['contrast'] ) ? (string) $bg_wrap['contrast'] : 'complex',
+	);
+}
+
+/**
+ * @param string $api_base Core REST base.
+ * @param string $endpoint Path after base, e.g. /expresscard/owner/contacts/list.
+ * @param string $token    Session token.
+ * @return void
+ */
+function ex_public_owner_bff_proxy_json( $api_base, $endpoint, $token ) {
+	header( 'Cache-Control: no-store, no-cache, must-revalidate, max-age=0' );
+	header( 'Pragma: no-cache' );
+	if ( '' === $token ) {
+		header( 'Content-Type: application/json; charset=UTF-8' );
+		http_response_code( 401 );
+		echo json_encode( array( 'ok' => false ) );
+		exit;
+	}
+	$raw_body = file_get_contents( 'php://input' );
+	$params   = is_string( $raw_body ) ? json_decode( $raw_body, true ) : null;
+	if ( ! is_array( $params ) ) {
+		$params = array();
+	}
+	unset( $params['session_token'] );
+	$params['session_token'] = $token;
+	$response = ex_public_owner_core_post( rtrim( (string) $api_base, '/' ) . $endpoint, $params );
+	$code     = $response['http_code'];
+	$type     = strtolower( (string) $response['content_type'] );
+
+	if ( '/expresscard/owner/contacts/vcf' === $endpoint ) {
+		$json = isset( $response['json'] ) && is_array( $response['json'] )
+			? $response['json']
+			: array();
+		$vcf = isset( $json['vcf'] ) && is_string( $json['vcf'] )
+			? $json['vcf']
+			: '';
+
+		if ( $code >= 200 && $code < 300 && preg_match( '/\ABEGIN:VCARD(?:\r\n|\n)/', $vcf ) ) {
+			header( 'Content-Type: text/vcard; charset=utf-8' );
+			header( 'X-Robots-Tag: noindex, nofollow' );
+			http_response_code( 200 );
+			echo $vcf;
+			exit;
+		}
+
+		header( 'Content-Type: application/json; charset=UTF-8' );
+		http_response_code( $code >= 400 && $code <= 599 ? (int) $code : 502 );
+		echo json_encode(
+			array(
+				'ok'   => false,
+				'code' => 'expressar_owner_vcf_unavailable',
+			)
+		);
+		exit;
+	}
+	if ( false !== strpos( $type, 'text/vcard' ) || false !== strpos( $type, 'text/x-vcard' ) ) {
+		header( 'Content-Type: text/vcard; charset=utf-8' );
+		header( 'X-Robots-Tag: noindex, nofollow' );
+		if ( $code >= 200 && $code < 300 ) {
+			http_response_code( $code );
+			echo $response['raw'];
+		} else {
+			http_response_code( $code >= 400 ? $code : 502 );
+		}
+		exit;
+	}
+	header( 'Content-Type: application/json; charset=UTF-8' );
+	if ( $code >= 200 && $code < 300 ) {
+		http_response_code( $code );
+		echo json_encode( is_array( $response['json'] ) ? $response['json'] : array() );
+		exit;
+	}
+	http_response_code( $code >= 400 ? $code : 502 );
+	echo json_encode( is_array( $response['json'] ) ? $response['json'] : array( 'ok' => false ) );
+	exit;
+}
+
+/**
+ * @param array<string, mixed> $config       Site config.
+ * @param string               $card_ref     Active card ref.
+ * @param array<int, mixed>    $cards        Cards list.
+ * @param array<string, mixed> $presentation Presentation.
+ * @param array<string, string> $lang_ctx    Language context.
+ * @param string               $public_id    Canonical public id for exports.
+ * @return void
+ */
+function ex_public_owner_render_card_screen( array $config, $card_ref, array $cards, array $presentation, array $lang_ctx, $public_id = '' ) {
+	$frame_css  = ex_public_owner_frame_css_href( $config );
+	$public_url = isset( $presentation['public_url'] ) ? (string) $presentation['public_url'] : '';
+	$strings    = ex_public_owner_strings( isset( $lang_ctx['dict'] ) ? (string) $lang_ctx['dict'] : 'sk' );
+	$runtime    = array(
+		'card_ref'              => (string) $card_ref,
+		'public_id'             => (string) $public_id,
+		'cards'                 => $cards,
+		'public_url'            => $public_url,
+		'lang'                  => $lang_ctx,
+		'i18n'                  => $strings,
+		'setupHomescreenGuide'  => ex_public_owner_setup_hint_active(),
+		'api'        => array(
+			'session'            => '/owner/api/session',
+			'revoke'             => '/owner/api/revoke',
+			'contacts_list'      => '/owner/api/contacts/list',
+			'contacts_count'     => '/owner/api/contacts/count',
+			'contacts_detail'    => '/owner/api/contacts/detail',
+			'contacts_read'      => '/owner/api/contacts/read',
+			'contacts_note'      => '/owner/api/contacts/note',
+			'contacts_processed' => '/owner/api/contacts/processed',
+			'contacts_vcf'       => '/owner/api/contacts/vcf',
+			'editor_link'        => '/owner/api/editor-link',
+		),
+	);
+	$display_name = isset( $presentation['display_name'] ) ? (string) $presentation['display_name'] : '';
+	$photo_url    = isset( $presentation['photo_url'] ) ? (string) $presentation['photo_url'] : '';
+	$multi_cards  = count( $cards ) > 1;
+	$html_lang    = isset( $lang_ctx['html_lang'] ) ? (string) $lang_ctx['html_lang'] : 'sk';
+	$body_style   = isset( $presentation['body_background_style'] ) ? (string) $presentation['body_background_style'] : '';
+	$contrast     = isset( $presentation['brand_contrast'] ) ? (string) $presentation['brand_contrast'] : 'complex';
+	if ( ! in_array( $contrast, array( 'light', 'dark', 'complex' ), true ) ) {
+		$contrast = 'complex';
+	}
+	$lang_path = '/owner/card/' . rawurlencode( (string) $card_ref );
+	$hub_query = array_merge( ex_public_owner_query_passthrough(), array( 'view' => 'cards' ) );
+	if ( isset( $lang_ctx['route'] ) && '' !== (string) $lang_ctx['route'] ) {
+		$hub_query['lang'] = (string) $lang_ctx['route'];
+	}
+	$hub_href = '/owner/?' . http_build_query( $hub_query );
+
+	header( 'Content-Type: text/html; charset=UTF-8' );
+	header( 'Cache-Control: no-store, no-cache, must-revalidate, max-age=0' );
+	header( 'Pragma: no-cache' );
+	header( 'X-Robots-Tag: noindex, nofollow' );
+
+	$body_attr = '' !== $body_style ? ' style="' . htmlspecialchars( $body_style, ENT_QUOTES, 'UTF-8' ) . '"' : '';
+	echo '<!DOCTYPE html><html lang="' . htmlspecialchars( $html_lang, ENT_QUOTES, 'UTF-8' ) . '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>' . htmlspecialchars( ex_public_owner_t( $strings, 'pageTitle', 'expressCARD' ), ENT_QUOTES, 'UTF-8' ) . '</title>' . ex_public_owner_pwa_head_markup() . '<link rel="stylesheet" href="' . htmlspecialchars( $frame_css, ENT_QUOTES, 'UTF-8' ) . '"></head><body class="ex-public-body ex-public-owner-body ex-public-owner-body--card ex-public-owner-contrast--' . htmlspecialchars( $contrast, ENT_QUOTES, 'UTF-8' ) . '"' . $body_attr . '><div class="ex-public-owner-app" data-ex-owner-app>';
+	echo '<div class="ex-public-owner-app__brand-top" aria-hidden="true"><p class="ex-public-owner-app__brand-mark" lang="en"><span class="ex-public-owner-app__brand-mark-icon" aria-hidden="true"></span><span class="ex-public-owner-app__brand-mark-express">express</span><span class="ex-public-owner-app__brand-mark-card">CARD</span></p></div>';
+	echo ex_public_owner_lang_switcher_markup( $lang_ctx, $lang_path, ex_public_owner_query_passthrough() );
+	if ( $multi_cards ) {
+		echo '<header class="ex-public-owner-app__header"><a class="ex-public-owner-app__hub" href="' . htmlspecialchars( $hub_href, ENT_QUOTES, 'UTF-8' ) . '">' . ex_public_owner_glyph_html( 'cards-switch' ) . '<span>' . htmlspecialchars( ex_public_owner_t( $strings, 'myCards', 'Moje karty' ), ENT_QUOTES, 'UTF-8' ) . '</span></a></header>';
+	}
+	echo '<main class="ex-public-owner-app__main">';
+	if ( $multi_cards ) {
+		echo '<section class="ex-public-owner-app__switcher" aria-label="' . htmlspecialchars( ex_public_owner_t( $strings, 'myCards', 'Moje karty' ), ENT_QUOTES, 'UTF-8' ) . '"><div class="ex-public-owner-app__switcher-track" data-ex-owner-switcher>';
+		foreach ( $cards as $card ) {
+			if ( ! is_array( $card ) ) {
+				continue;
+			}
+			$ref   = ex_public_owner_card_route_ref( $card );
+			$label = isset( $card['label'] ) ? trim( (string) $card['label'] ) : $ref;
+			if ( '' === $ref ) {
+				continue;
+			}
+			$active = $ref === (string) $card_ref;
+			$href   = ex_public_owner_card_screen_url( $ref, $lang_ctx );
+			echo '<a class="ex-public-owner-app__switch' . ( $active ? ' is-active' : '' ) . '" href="' . htmlspecialchars( $href, ENT_QUOTES, 'UTF-8' ) . '"' . ( $active ? ' aria-current="page"' : '' ) . '><span class="ex-public-owner-app__switch-tile" aria-hidden="true">' . ex_public_owner_glyph_html( 'cards-switch' ) . '</span><span class="ex-public-owner-app__switch-label">' . htmlspecialchars( $label, ENT_QUOTES, 'UTF-8' ) . '</span></a>';
+		}
+		echo '</div></section>';
+	}
+	echo '<section class="ex-public-owner-app__identity" aria-labelledby="ex-owner-display-name">';
+	if ( '' !== $photo_url ) {
+		echo '<div class="ex-public-owner-app__photo"><img src="' . htmlspecialchars( $photo_url, ENT_QUOTES, 'UTF-8' ) . '" alt="" width="120" height="120" decoding="async"></div>';
+	}
+	echo '<h1 class="ex-public-owner-app__name" id="ex-owner-display-name">' . htmlspecialchars( $display_name, ENT_QUOTES, 'UTF-8' ) . '</h1>';
+	echo '</section>';
+	echo '<nav class="ex-public-owner-app__actions" aria-label="' . htmlspecialchars( ex_public_owner_t( $strings, 'pageTitle', 'expressCARD' ), ENT_QUOTES, 'UTF-8' ) . '">';
+	echo '<button type="button" class="ex-public-owner-app__action ex-public-owner-app__action--primary" data-ex-owner-open-qr>' . ex_public_owner_glyph_html( 'qr' ) . '<span>' . htmlspecialchars( ex_public_owner_t( $strings, 'actionQr', 'QR kód' ), ENT_QUOTES, 'UTF-8' ) . '</span></button>';
+	echo '<button type="button" class="ex-public-owner-app__action" data-ex-owner-share>' . ex_public_owner_glyph_html( 'share' ) . '<span>' . ex_public_owner_label_with_brand_html( $strings, 'actionSharePrefix', 'Zdieľať ', 'actionShareSuffix', '' ) . '</span></button>';
+	echo '<button type="button" class="ex-public-owner-app__action ex-public-owner-app__action--contacts" data-ex-owner-contacts>' . ex_public_owner_glyph_html( 'contacts' ) . '<span>' . htmlspecialchars( ex_public_owner_t( $strings, 'actionContacts', 'Kontakty' ), ENT_QUOTES, 'UTF-8' ) . '</span><span class="ex-public-owner-app__badge" data-ex-owner-unread hidden>0</span></button>';
+	echo '<button type="button" class="ex-public-owner-app__action" data-ex-owner-manage hidden>' . ex_public_owner_glyph_html( 'edit' ) . '<span>' . ex_public_owner_label_with_brand_html( $strings, 'actionEditPrefix', 'Upraviť ', 'actionEditSuffix', '' ) . '</span></button>';
+	echo '</nav>';
+	echo '<nav class="ex-public-owner-app__service" aria-label="' . htmlspecialchars( ex_public_owner_t( $strings, 'actionHomescreen', 'Pridať na plochu' ), ENT_QUOTES, 'UTF-8' ) . '"><button type="button" class="ex-public-owner-app__homescreen-link" data-ex-owner-homescreen>' . ex_public_owner_glyph_html( 'home-screen' ) . '<span>' . htmlspecialchars( ex_public_owner_t( $strings, 'actionHomescreen', 'Pridať na plochu' ), ENT_QUOTES, 'UTF-8' ) . '</span></button><button type="button" class="ex-public-owner-app__homescreen-help" data-ex-owner-homescreen-help aria-label="' . htmlspecialchars( ex_public_owner_t( $strings, 'homescreenGuideTitle', 'Pridať na plochu' ), ENT_QUOTES, 'UTF-8' ) . '">?</button></nav>';
+	echo '<footer class="ex-public-owner-app__footer"><button type="button" class="ex-public-owner-app__logout-link" data-ex-owner-logout>' . htmlspecialchars( ex_public_owner_t( $strings, 'logoutLink', 'Odhlásiť toto zariadenie' ), ENT_QUOTES, 'UTF-8' ) . '</button></footer>';
+	echo '<p class="ex-public-owner-app__count-error" data-ex-owner-count-error hidden><span data-ex-owner-count-error-text></span> <button type="button" class="ex-public-owner-app__count-retry" data-ex-owner-count-retry>' . htmlspecialchars( ex_public_owner_t( $strings, 'countRetry', 'Skúsiť znova' ), ENT_QUOTES, 'UTF-8' ) . '</button></p>';
+	echo '<p class="ex-public-owner-app__live" data-ex-owner-live role="status" aria-live="polite"></p>';
+	echo '</main>';
+	echo '<div class="ex-public-owner-app__brand-footer" aria-hidden="true"><span class="ex-public-owner-app__brand-footer-icon"></span></div>';
+	echo '<div class="ex-public-owner-logout-dialog" data-ex-owner-logout-dialog hidden><div class="ex-public-owner-logout-dialog__card" role="dialog" aria-modal="true" aria-labelledby="ex-owner-logout-title"><div class="ex-public-owner-app__panel-head ex-public-owner-logout-dialog__head"><h2 class="ex-public-owner-logout-dialog__title" id="ex-owner-logout-title">' . htmlspecialchars( ex_public_owner_t( $strings, 'logoutConfirmTitle', 'Odhlásenie' ), ENT_QUOTES, 'UTF-8' ) . '</h2>' . ex_public_owner_modal_close_btn_html( $strings, 'data-ex-owner-logout-close' ) . '</div><p class="ex-public-owner-logout-dialog__text">' . htmlspecialchars( ex_public_owner_t( $strings, 'logoutConfirmMessage', 'Naozaj chcete odhlásiť toto zariadenie?' ), ENT_QUOTES, 'UTF-8' ) . '</p><div class="ex-public-owner-logout-dialog__actions"><button type="button" class="ex-public-owner-logout-dialog__confirm" data-ex-owner-logout-confirm>' . htmlspecialchars( ex_public_owner_t( $strings, 'logoutConfirmSubmit', 'Odhlásiť toto zariadenie' ), ENT_QUOTES, 'UTF-8' ) . '</button></div></div></div>';
+	echo '<script type="application/json" id="ex-owner-app-config">';
+	echo json_encode(
+		$runtime,
+		JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+	);
+	echo '</script>';
+	echo '<div class="ex-public-owner-panel" data-ex-owner-panel="qr" hidden><div class="ex-public-owner-panel__card ex-public-owner-app__panel ex-public-owner-app__panel--qr"><div class="ex-public-owner-app__panel-head"><h2>' . htmlspecialchars( ex_public_owner_t( $strings, 'qrPanelTitle', 'QR kód' ), ENT_QUOTES, 'UTF-8' ) . '</h2>' . ex_public_owner_modal_close_btn_html( $strings, 'data-ex-owner-panel-close' ) . '</div><p class="ex-public-owner-app__qr-name">' . htmlspecialchars( $display_name, ENT_QUOTES, 'UTF-8' ) . '</p><div class="ex-public-owner-app__qr-box" data-ex-owner-qr></div><button type="button" class="ex-public-owner-app__action ex-public-owner-app__action--download" data-ex-owner-download-qr>' . ex_public_owner_glyph_html( 'qr-download' ) . '<span>' . htmlspecialchars( ex_public_owner_t( $strings, 'downloadQr', 'Stiahnuť QR kód' ), ENT_QUOTES, 'UTF-8' ) . '</span></button></div></div>';
+	echo '<div class="ex-public-owner-panel" data-ex-owner-panel="export" hidden><div class="ex-public-owner-panel__card ex-public-owner-app__panel"><div class="ex-public-owner-app__panel-head"><h2>' . htmlspecialchars( ex_public_owner_t( $strings, 'downloadQr', 'Stiahnuť QR kód' ), ENT_QUOTES, 'UTF-8' ) . '</h2>' . ex_public_owner_modal_close_btn_html( $strings, 'data-ex-owner-export-close' ) . '</div><button type="button" class="ex-public-owner-app__action" data-ex-owner-export-png>' . ex_public_owner_glyph_html( 'qr-png' ) . '<span>' . htmlspecialchars( ex_public_owner_t( $strings, 'downloadPng', 'Stiahnuť PNG' ), ENT_QUOTES, 'UTF-8' ) . '</span></button><button type="button" class="ex-public-owner-app__action" data-ex-owner-export-svg>' . ex_public_owner_glyph_html( 'qr-svg' ) . '<span>' . htmlspecialchars( ex_public_owner_t( $strings, 'downloadSvg', 'Stiahnuť SVG' ), ENT_QUOTES, 'UTF-8' ) . '</span></button></div></div>';
+	echo '<div class="ex-public-owner-panel" data-ex-owner-panel="share" hidden><div class="ex-public-owner-panel__card ex-public-owner-app__panel"><div class="ex-public-owner-app__panel-head"><h2>' . ex_public_owner_label_with_brand_html( $strings, 'actionSharePrefix', 'Zdieľať ', 'actionShareSuffix', '' ) . '</h2>' . ex_public_owner_modal_close_btn_html( $strings, 'data-ex-owner-panel-close' ) . '</div><p class="ex-public-owner-app__share-hint" data-ex-owner-share-hint hidden></p><label class="ex-public-owner-app__share-label">' . htmlspecialchars( ex_public_owner_t( $strings, 'shareManualLabel', 'Verejný odkaz' ), ENT_QUOTES, 'UTF-8' ) . '<input type="text" class="ex-public-owner-app__share-field" data-ex-owner-share-field readonly></label></div></div>';
+	echo '<div class="ex-public-owner-panel" data-ex-owner-panel="contacts" hidden><div class="ex-public-owner-panel__card ex-public-owner-app__panel"><div class="ex-public-owner-app__panel-head"><h2>' . htmlspecialchars( ex_public_owner_t( $strings, 'contactsTitle', 'Kontakty' ), ENT_QUOTES, 'UTF-8' ) . '</h2>' . ex_public_owner_modal_close_btn_html( $strings, 'data-ex-owner-panel-close' ) . '</div><ul class="ex-public-owner-app__contact-list" data-ex-owner-contact-list></ul><p class="ex-public-owner-app__contact-more-wrap" hidden><button type="button" class="ex-public-owner-app__contact-more" data-ex-owner-contacts-more>' . htmlspecialchars( ex_public_owner_t( $strings, 'contactsLoadMore', 'Načítať ďalšie' ), ENT_QUOTES, 'UTF-8' ) . '</button></p></div></div>';
+	echo '<div class="ex-public-owner-panel" data-ex-owner-panel="detail" hidden><div class="ex-public-owner-panel__card ex-public-owner-app__panel ex-public-owner-app__panel--detail"><div class="ex-public-owner-app__panel-head"><button type="button" class="ex-public-owner-app__detail-back" data-ex-owner-detail-back>' . htmlspecialchars( ex_public_owner_t( $strings, 'back', 'Späť' ), ENT_QUOTES, 'UTF-8' ) . '</button><h2 data-ex-owner-detail-name>' . htmlspecialchars( ex_public_owner_t( $strings, 'contactDefault', 'Kontakt' ), ENT_QUOTES, 'UTF-8' ) . '</h2>' . ex_public_owner_modal_close_btn_html( $strings, 'data-ex-owner-panel-close' ) . '</div><div class="ex-public-owner-app__detail" data-ex-owner-detail></div><div class="ex-public-owner-app__detail-actions"><button type="button" data-ex-owner-mark-read>' . htmlspecialchars( ex_public_owner_t( $strings, 'markRead', 'Označiť prečítané' ), ENT_QUOTES, 'UTF-8' ) . '</button><button type="button" data-ex-owner-mark-processed>' . htmlspecialchars( ex_public_owner_t( $strings, 'markProcessed', 'Vybavené' ), ENT_QUOTES, 'UTF-8' ) . '</button><button type="button" data-ex-owner-download-vcf>' . htmlspecialchars( ex_public_owner_t( $strings, 'downloadVcf', 'Stiahnuť VCF' ), ENT_QUOTES, 'UTF-8' ) . '</button></div><label class="ex-public-owner-app__note-label">' . htmlspecialchars( ex_public_owner_t( $strings, 'noteLabel', 'Poznámka' ), ENT_QUOTES, 'UTF-8' ) . '<textarea rows="3" data-ex-owner-note></textarea></label><button type="button" class="ex-public-owner-app__note-save" data-ex-owner-save-note>' . htmlspecialchars( ex_public_owner_t( $strings, 'noteSave', 'Uložiť poznámku' ), ENT_QUOTES, 'UTF-8' ) . '</button></div></div>';
+	echo '<div class="ex-public-owner-panel" data-ex-owner-panel="homescreen" hidden><div class="ex-public-owner-panel__card ex-public-owner-app__panel ex-public-owner-app__panel--homescreen"><div class="ex-public-owner-app__panel-head"><h2>' . htmlspecialchars( ex_public_owner_t( $strings, 'homescreenGuideTitle', 'Pridať na plochu' ), ENT_QUOTES, 'UTF-8' ) . '</h2>' . ex_public_owner_modal_close_btn_html( $strings, 'data-ex-owner-panel-close' ) . '</div><p class="ex-public-owner-app__homescreen-intro">' . htmlspecialchars( ex_public_owner_t( $strings, 'homescreenGuideIntro', '' ), ENT_QUOTES, 'UTF-8' ) . '</p><ol class="ex-public-owner-app__homescreen-steps" data-ex-owner-homescreen-steps></ol></div></div>';
+	echo '<script src="/assets/js/vendor/qrcodegen.js" defer></script><script src="/assets/js/expresscard-owner-public.js" defer></script></body></html>';
+	exit;
 }
 
 /**
@@ -1198,6 +2076,37 @@ function ex_public_owner_dispatch( $path_entry, array $config ) {
 	$api_base   = ex_public_owner_core_api_base( $config );
 	$method     = isset( $_SERVER['REQUEST_METHOD'] ) ? strtoupper( (string) $_SERVER['REQUEST_METHOD'] ) : 'GET';
 
+	if ( 'owner/app.webmanifest' === $path_entry && 'GET' === $method ) {
+		$origin = ex_public_owner_site_origin( $config );
+		header( 'Content-Type: application/manifest+json; charset=UTF-8' );
+		header( 'Cache-Control: public, max-age=3600' );
+		$manifest = array(
+			'id'                            => '/owner/',
+			'name'                          => 'expressCARD',
+			'short_name'                    => 'expressCARD',
+			'start_url'                     => '/owner/',
+			'scope'                         => '/owner/',
+			'display'                       => 'standalone',
+			'prefer_related_applications'   => false,
+			'icons'                         => array(
+				array(
+					'src'     => $origin . '/images/expresscard-home-192.png',
+					'sizes'   => '192x192',
+					'type'    => 'image/png',
+					'purpose' => 'any',
+				),
+				array(
+					'src'     => $origin . '/images/expresscard-home-512.png',
+					'sizes'   => '512x512',
+					'type'    => 'image/png',
+					'purpose' => 'any',
+				),
+			),
+		);
+		echo json_encode( $manifest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+		exit;
+	}
+
 	if ( 'owner/activate' === $path_entry && 'POST' === $method ) {
 		header( 'Cache-Control: no-store, no-cache, must-revalidate, max-age=0' );
 		header( 'Pragma: no-cache' );
@@ -1319,6 +2228,26 @@ function ex_public_owner_dispatch( $path_entry, array $config ) {
 		exit;
 	}
 
+	$owner_bff_contacts = array(
+		'owner/api/contacts/list'       => '/expresscard/owner/contacts/list',
+		'owner/api/contacts/count'      => '/expresscard/owner/contacts/count',
+		'owner/api/contacts/detail'     => '/expresscard/owner/contacts/detail',
+		'owner/api/contacts/read'       => '/expresscard/owner/contacts/read',
+		'owner/api/contacts/note'       => '/expresscard/owner/contacts/note',
+		'owner/api/contacts/processed'  => '/expresscard/owner/contacts/processed',
+		'owner/api/contacts/vcf'        => '/expresscard/owner/contacts/vcf',
+		'owner/api/editor-link'         => '/expresscard/owner/editor-link',
+	);
+	if ( isset( $owner_bff_contacts[ $path_entry ] ) && 'POST' === $method ) {
+		if ( ! ex_public_owner_request_origin_ok() ) {
+			header( 'Content-Type: application/json; charset=UTF-8' );
+			http_response_code( 403 );
+			echo json_encode( array( 'ok' => false ) );
+			exit;
+		}
+		ex_public_owner_bff_proxy_json( $api_base, $owner_bff_contacts[ $path_entry ], ex_public_owner_session_from_cookie() );
+	}
+
 	if ( 'owner/api/renew' === $path_entry && 'POST' === $method ) {
 		header( 'Content-Type: application/json; charset=UTF-8' );
 		$raw_body = file_get_contents( 'php://input' );
@@ -1334,20 +2263,101 @@ function ex_public_owner_dispatch( $path_entry, array $config ) {
 		header( 'Pragma: no-cache' );
 		header( 'Referrer-Policy: no-referrer' );
 		header( 'Content-Type: text/html; charset=UTF-8' );
-		$frame_css = isset( $config['frame_css'] ) ? (string) $config['frame_css'] : '/assets/css/expresscard-public.css';
+		$frame_css = ex_public_owner_frame_css_href( $config );
 		try {
 			$challenge = bin2hex( random_bytes( 16 ) );
 		} catch ( Exception $e ) {
 			ex_public_fail( 503, 'Aktivácia nie je dostupná.' );
 		}
 		ex_public_owner_set_challenge_cookie( $challenge );
-		echo '<!DOCTYPE html><html lang="sk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Aktivácia expressCARD</title><link rel="stylesheet" href="' . htmlspecialchars( $frame_css, ENT_QUOTES, 'UTF-8' ) . '"></head><body class="ex-public-body"><main class="ex-public-owner-activate" data-ex-owner-challenge="' . htmlspecialchars( $challenge, ENT_QUOTES, 'UTF-8' ) . '"><h1>Aktivácia prístupu</h1><p>Po potvrdení sa toto zariadenie prihlási na zobrazenie vašich kariet.</p><button type="button" id="ex-owner-activate-btn">Aktivovať na tomto zariadení</button><p id="ex-owner-activate-status" hidden="hidden"></p></main><script>(function(){var h=String(location.hash||"").replace(/^#/,"");try{h=decodeURIComponent(h);}catch(e){}window.__exOwnerActivationSecret=h||"";if(history.replaceState){history.replaceState(null,document.title,location.pathname+location.search);}})();</script><script src="/assets/js/expresscard-owner-public.js" defer></script></body></html>';
+		$lang_ctx = ex_public_owner_resolve_lang();
+		$strings  = ex_public_owner_strings( $lang_ctx['dict'] );
+		$i18n_all = array();
+		foreach ( array_keys( ex_public_owner_lang_route_map() ) as $route_key ) {
+			$i18n_all[ $route_key ] = ex_public_owner_strings( $route_key );
+		}
+		$page_cfg = array(
+			'page'     => 'activate',
+			'i18n'     => $strings,
+			'i18nAll'  => $i18n_all,
+			'lang'     => $lang_ctx,
+			'inpageLang' => true,
+		);
+		echo '<!DOCTYPE html><html lang="' . htmlspecialchars( $lang_ctx['html_lang'], ENT_QUOTES, 'UTF-8' ) . '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>' . htmlspecialchars( ex_public_owner_t( $strings, 'activateTitle', 'Aktivácia' ), ENT_QUOTES, 'UTF-8' ) . '</title>' . ex_public_owner_pwa_head_markup() . '<link rel="stylesheet" href="' . htmlspecialchars( $frame_css, ENT_QUOTES, 'UTF-8' ) . '"></head><body class="ex-public-body ex-public-owner-body"><main class="ex-public-owner-activate" data-ex-owner-challenge="' . htmlspecialchars( $challenge, ENT_QUOTES, 'UTF-8' ) . '">';
+		echo ex_public_owner_lang_switcher_markup( $lang_ctx, '/owner/activate', array(), true );
+		echo '<h1>' . htmlspecialchars( ex_public_owner_t( $strings, 'activateTitle', 'Aktivácia prístupu' ), ENT_QUOTES, 'UTF-8' ) . '</h1><p>' . htmlspecialchars( ex_public_owner_t( $strings, 'activateIntro', '' ), ENT_QUOTES, 'UTF-8' ) . '</p><button type="button" id="ex-owner-activate-btn">' . htmlspecialchars( ex_public_owner_t( $strings, 'activateBtn', 'Aktivovať' ), ENT_QUOTES, 'UTF-8' ) . '</button><p id="ex-owner-activate-status" hidden="hidden"></p></main>';
+		echo '<script type="application/json" id="ex-owner-page-config">';
+		echo json_encode(
+			$page_cfg,
+			JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+		);
+		echo '</script>';
+		echo '<script>(function(){var h=String(location.hash||"").replace(/^#/,"");try{h=decodeURIComponent(h);}catch(e){}window.__exOwnerActivationSecret=h||"";if(history.replaceState){history.replaceState(null,document.title,location.pathname+location.search);}})();</script><script src="/assets/js/expresscard-owner-public.js" defer></script></body></html>';
 		exit;
+	}
+
+	if ( preg_match( '#^owner/card/([^/]+)$#', $path_entry, $owner_card_match ) && 'GET' === $method ) {
+		$card_ref = rawurldecode( (string) $owner_card_match[1] );
+		if ( ! ex_public_valid_id( $card_ref ) && ! ex_public_valid_slug_segment( $card_ref ) ) {
+			ex_public_fail( 404, 'Karta nebola nájdená.' );
+		}
+		$token = ex_public_owner_session_from_cookie();
+		if ( '' === $token ) {
+			header( 'Location: /owner/', true, 302 );
+			exit;
+		}
+		$intro = ex_public_owner_core_post_json( $api_base . '/expresscard/owner/session', array( 'session_token' => $token ) );
+		if ( ! is_array( $intro ) || empty( $intro['valid'] ) ) {
+			ex_public_owner_clear_session_cookie();
+			header( 'Location: /owner/', true, 302 );
+			exit;
+		}
+		$verify = ex_public_owner_core_post_json(
+			$api_base . '/expresscard/owner/card-verify',
+			array(
+				'session_token' => $token,
+				'card_ref'      => $card_ref,
+			)
+		);
+		if ( ! is_array( $verify ) || empty( $verify['allowed'] ) ) {
+			header( 'Location: /owner/?view=cards', true, 302 );
+			exit;
+		}
+		$list  = ex_public_owner_core_post_json( $api_base . '/expresscard/owner/cards', array( 'session_token' => $token ) );
+		$cards = ( is_array( $list ) && isset( $list['cards'] ) && is_array( $list['cards'] ) ) ? $list['cards'] : array();
+		$cards_root = isset( $config['cards_root'] ) ? trim( (string) $config['cards_root'] ) : '';
+		$base_url   = isset( $config['public_base_url'] ) ? trim( (string) $config['public_base_url'] ) : '';
+		$public_id  = ( '' !== $cards_root ) ? ex_public_owner_resolve_public_id( $card_ref, $cards, $cards_root ) : false;
+		$lang_ctx     = ex_public_owner_resolve_lang();
+		$presentation = array(
+			'display_name'          => '',
+			'photo_url'             => '',
+			'public_url'            => '',
+			'public_host'           => '',
+			'body_background_style' => '',
+		);
+		$resolved_public_id = is_string( $public_id ) ? $public_id : '';
+		if ( is_string( $public_id ) && '' !== $cards_root && '' !== $base_url ) {
+			$package = ex_public_owner_load_package( $cards_root, $public_id );
+			if ( is_array( $package ) ) {
+				$presentation = ex_public_owner_presentation_from_package(
+					$package['manifest'],
+					$public_id,
+					$base_url,
+					$package['current_real']
+				);
+			}
+		}
+		if ( '' === $presentation['public_url'] && '' !== $base_url ) {
+			$presentation['public_url']  = rtrim( $base_url, '/' ) . '/' . rawurlencode( $card_ref );
+			$presentation['public_host'] = preg_replace( '#^https?://#i', '', $presentation['public_url'] );
+		}
+		ex_public_owner_render_card_screen( $config, $card_ref, $cards, $presentation, $lang_ctx, $resolved_public_id );
 	}
 
 	if ( 'owner' === $path_entry || 'owner/' === $path_entry ) {
 		header( 'Cache-Control: no-store, no-cache, must-revalidate, max-age=0' );
-		$frame_css  = isset( $config['frame_css'] ) ? (string) $config['frame_css'] : '/assets/css/expresscard-public.css';
+		$frame_css  = ex_public_owner_frame_css_href( $config );
 		$token      = ex_public_owner_session_from_cookie();
 		$cards      = array();
 		$view_cards = 'cards' === ex_public_scalar_query( 'view' );
@@ -1359,6 +2369,10 @@ function ex_public_owner_dispatch( $path_entry, array $config ) {
 					$cards = $list['cards'];
 				}
 			}
+		}
+		$lang_ctx_single = ex_public_owner_resolve_lang();
+		if ( ! empty( $cards ) ) {
+			ex_public_owner_redirect_if_single_card( $cards, $lang_ctx_single );
 		}
 		if ( ! empty( $cards ) && ! $view_cards ) {
 			$pref           = ex_public_owner_pref_from_cookie();
@@ -1374,7 +2388,7 @@ function ex_public_owner_dispatch( $path_entry, array $config ) {
 						continue;
 					}
 					if ( $pref === $pid || $pref === $slug ) {
-						$pref_redirect = $slug;
+						$pref_redirect = ex_public_owner_card_route_ref( $card );
 						break;
 					}
 				}
@@ -1383,7 +2397,7 @@ function ex_public_owner_dispatch( $path_entry, array $config ) {
 				}
 			}
 			if ( '' !== $pref_redirect ) {
-				header( 'Location: /' . rawurlencode( $pref_redirect ), true, 302 );
+				header( 'Location: ' . ex_public_owner_card_screen_url( $pref_redirect, $lang_ctx_single ), true, 302 );
 				exit;
 			}
 		} elseif ( ! empty( $cards ) && $view_cards ) {
@@ -1408,28 +2422,48 @@ function ex_public_owner_dispatch( $path_entry, array $config ) {
 		} elseif ( empty( $cards ) && '' !== ex_public_owner_pref_from_cookie() ) {
 			ex_public_owner_clear_pref_cookie();
 		}
+		$lang_ctx = ex_public_owner_resolve_lang();
+		$strings  = ex_public_owner_strings( $lang_ctx['dict'] );
+		$hub_query = $view_cards ? array( 'view' => 'cards' ) : array();
+		$hub_query = array_merge( ex_public_owner_query_passthrough(), $hub_query );
+		$page_cfg  = array(
+			'page'                 => 'hub',
+			'i18n'                 => $strings,
+			'lang'                 => $lang_ctx,
+			'setupHomescreenGuide' => ex_public_owner_setup_hint_active(),
+		);
 		header( 'Content-Type: text/html; charset=UTF-8' );
-		echo '<!DOCTYPE html><html lang="sk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>expressCARD</title><link rel="stylesheet" href="' . htmlspecialchars( $frame_css, ENT_QUOTES, 'UTF-8' ) . '"></head><body class="ex-public-body"><main class="ex-public-owner-activate"><h1>Moje karty</h1>';
+		echo '<!DOCTYPE html><html lang="' . htmlspecialchars( $lang_ctx['html_lang'], ENT_QUOTES, 'UTF-8' ) . '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>' . htmlspecialchars( ex_public_owner_t( $strings, 'pageTitle', 'expressCARD' ), ENT_QUOTES, 'UTF-8' ) . '</title>' . ex_public_owner_pwa_head_markup() . '<link rel="stylesheet" href="' . htmlspecialchars( $frame_css, ENT_QUOTES, 'UTF-8' ) . '"></head><body class="ex-public-body ex-public-owner-body"><main class="ex-public-owner-activate">';
+		echo ex_public_owner_lang_switcher_markup( $lang_ctx, '/owner/', $hub_query );
+		echo '<h1>' . htmlspecialchars( ex_public_owner_t( $strings, 'myCards', 'Moje karty' ), ENT_QUOTES, 'UTF-8' ) . '</h1>';
 		if ( empty( $cards ) ) {
-			echo '<p>Pre zobrazenie kariet aktivujte prístup alebo požiadajte o obnovu e-mailom.</p><p><a href="/owner/activate">Aktivácia</a></p>';
-			echo '<form class="ex-public-owner-renew" id="ex-owner-renew-form"><label>E-mail na obnovu<input type="email" name="email" required autocomplete="email" /></label><button type="submit">Odoslať odkaz</button><p id="ex-owner-renew-status" hidden="hidden"></p></form>';
+			$activate_query = ex_public_owner_query_passthrough();
+			$activate_query['lang'] = $lang_ctx['route'];
+			$activate_href = '/owner/activate?' . http_build_query( $activate_query );
+			echo '<p>' . htmlspecialchars( ex_public_owner_t( $strings, 'hubEmpty', '' ), ENT_QUOTES, 'UTF-8' ) . '</p><p><a href="' . htmlspecialchars( $activate_href, ENT_QUOTES, 'UTF-8' ) . '">' . htmlspecialchars( ex_public_owner_t( $strings, 'activateLink', 'Aktivácia' ), ENT_QUOTES, 'UTF-8' ) . '</a></p>';
+			echo '<form class="ex-public-owner-renew" id="ex-owner-renew-form"><label>' . htmlspecialchars( ex_public_owner_t( $strings, 'renewEmail', 'E-mail' ), ENT_QUOTES, 'UTF-8' ) . '<input type="email" name="email" required autocomplete="email" /></label><button type="submit">' . htmlspecialchars( ex_public_owner_t( $strings, 'renewSubmit', 'Odoslať' ), ENT_QUOTES, 'UTF-8' ) . '</button><p id="ex-owner-renew-status" hidden="hidden"></p></form>';
 		} else {
-			echo '<ul>';
+			echo '<ul class="ex-public-owner-hub-list">';
 			foreach ( $cards as $card ) {
 				if ( ! is_array( $card ) ) {
 					continue;
 				}
-				$slug = isset( $card['public_slug'] ) && '' !== (string) $card['public_slug'] ? (string) $card['public_slug'] : (string) ( $card['public_id'] ?? '' );
-				if ( '' === $slug || ! ex_public_valid_id( $slug ) && ! ex_public_valid_slug_segment( $slug ) ) {
+				$ref = ex_public_owner_card_route_ref( $card );
+				if ( '' === $ref ) {
 					continue;
 				}
-				$label = isset( $card['label'] ) ? (string) $card['label'] : $slug;
-				$href  = '/' . rawurlencode( $slug );
+				$label = isset( $card['label'] ) ? trim( (string) $card['label'] ) : $ref;
+				$href = ex_public_owner_card_screen_url( $ref, $lang_ctx );
 				echo '<li><a href="' . htmlspecialchars( $href, ENT_QUOTES, 'UTF-8' ) . '">' . htmlspecialchars( $label, ENT_QUOTES, 'UTF-8' ) . '</a></li>';
 			}
 			echo '</ul>';
 		}
-		echo '</main><script src="/assets/js/expresscard-owner-public.js" defer></script></body></html>';
+		echo '</main><script type="application/json" id="ex-owner-page-config">';
+		echo json_encode(
+			$page_cfg,
+			JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+		);
+		echo '</script><script src="/assets/js/expresscard-owner-public.js" defer></script></body></html>';
 		exit;
 	}
 
@@ -1753,41 +2787,6 @@ window.expresscardContactExchange = <?php echo json_encode(
 ); ?>;
 </script>
 <script src="/assets/js/expresscard-contact-exchange-public.js" defer></script>
-<?php endif; ?>
-<?php
-$owner_token = ex_public_owner_session_from_cookie();
-$owner_runtime = null;
-if ( '' !== $owner_token ) {
-	$api_base_owner = ex_public_owner_core_api_base( $config );
-	$intro          = ex_public_owner_core_post_json( $api_base_owner . '/expresscard/owner/session', array( 'session_token' => $owner_token ) );
-	$session_valid  = is_array( $intro ) && ! empty( $intro['valid'] );
-	if ( $session_valid ) {
-		$verify       = ex_public_owner_core_post_json(
-			$api_base_owner . '/expresscard/owner/card-verify',
-			array(
-				'session_token' => $owner_token,
-				'card_ref'      => $public_id,
-			)
-		);
-		$card_allowed = is_array( $verify ) && ! empty( $verify['allowed'] );
-		$list         = ex_public_owner_core_post_json( $api_base_owner . '/expresscard/owner/cards', array( 'session_token' => $owner_token ) );
-		$owner_runtime = array(
-			'session_valid'     => true,
-			'enabled'           => $card_allowed,
-			'cards'             => ( is_array( $list ) && isset( $list['cards'] ) && is_array( $list['cards'] ) ) ? $list['cards'] : array(),
-			'current_public_id' => $public_id,
-		);
-	}
-}
-if ( is_array( $owner_runtime ) ) :
-	?>
-<script>
-window.expresscardOwner = <?php echo json_encode(
-	$owner_runtime,
-	JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
-); ?>;
-</script>
-<script src="/assets/js/expresscard-owner-public.js" defer></script>
 <?php endif; ?>
 </body>
 </html>

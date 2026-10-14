@@ -1,0 +1,6 @@
+QR Code generator library — Project Nayuki
+Upstream: https://github.com/nayuki/QR-Code-generator
+Release: v1.8.0 (2022-04-17)
+Asset: qrcodegen-v1.8.0-es6.js (saved as assets/js/vendor/qrcodegen.js)
+License: MIT (see header in qrcodegen.js)
+SHA-256 (qrcodegen.js): 6A1116192ED1DD67FA1BF31E77F5817103D71C23BBAC24C382E698B7668BDD01

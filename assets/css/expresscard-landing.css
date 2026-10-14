@@ -34,7 +34,7 @@ body.ex-landing { font-family: 'Raleway', sans-serif;margin: 0; background: #080
 .ex-landing__brand-word i,.ex-landing__brand-word sup { font-weight: 500; }
 .ex-landing__icon { flex: none; width: 2.3rem; height: 2.3rem; background: currentColor; -webkit-mask: url("/images/expressar_icon.svg") center/contain no-repeat; mask: url("/images/expressar_icon.svg") center/contain no-repeat;margin: 0 0 -8px 0;}
 .ex-landing__languages { display: flex; align-items: center; flex-wrap: wrap; gap: 2px;margin:0 0 -9px 0;}
-.ex-landing__language { display: inline-flex; min-width: 36px; min-height: 44px; align-items: center; justify-content: center; padding: 8px 5px; font-size: 12px; font-weight: 650; letter-spacing: .06em; text-decoration: none; color: #d5d9df !important; }
+.ex-landing__language { display: inline-flex; min-width: 33px; min-height: 44px; align-items: center; justify-content: center; padding: 8px 5px; font-size: 12px; font-weight: 650; letter-spacing: .06em; text-decoration: none; color: #d5d9df !important; }
 .ex-landing__language[aria-current="page"] { color: #fff !important; text-decoration: underline; text-decoration-color: #ff6600; text-underline-offset: 7px; text-decoration-thickness: 2px; }
 .ex-landing__separator { color: #87909f; font-size: 12px; }
 .ex-landing__main { width: 100%; max-width: 800px; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 0 auto; padding: 56px max(24px, env(safe-area-inset-right)) 64px max(24px, env(safe-area-inset-left)); text-align: center; }
