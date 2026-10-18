@@ -1,6 +1,43 @@
 (function () {
   "use strict";
 
+  var ownerBootstrapped = false;
+  var revalidateInFlight = null;
+  var bootstrapInFlight = false;
+  var ownerAppBound = false;
+
+  var exCardBusy = (function () {
+    var count = 0;
+    function rootNode() {
+      return document.querySelector("[data-ex-excard-busy-root]");
+    }
+    function sync() {
+      var root = rootNode();
+      if (!root) return;
+      if (count > 0) {
+        root.hidden = false;
+        root.setAttribute("aria-hidden", "false");
+      } else {
+        root.hidden = true;
+        root.setAttribute("aria-hidden", "true");
+      }
+    }
+    return {
+      begin: function () {
+        count += 1;
+        sync();
+      },
+      end: function () {
+        count = Math.max(0, count - 1);
+        sync();
+      },
+      reset: function () {
+        count = 0;
+        sync();
+      }
+    };
+  })();
+
   var deferredInstallPrompt = null;
   var installPromptConsumed = false;
 
@@ -114,7 +151,13 @@
     if (code === "expressar_dsi_received_contacts_unavailable") {
       return t(i18n, "errorUnavailable", "Unavailable.");
     }
-    if (code.indexOf("forbidden") !== -1 || code.indexOf("session") !== -1 || code === "expressar_owner_origin_forbidden") {
+    if (code === "expressar_dsi_access_session_limit_reached") {
+      return t(i18n, "activateSessionLimit", "Device limit reached.");
+    }
+    if (code === "expressar_dsi_access_activation_invalid" || code === "expressar_dsi_access_activation_consumed") {
+      return t(i18n, "activateInvalid", "Invalid link.");
+    }
+    if (code.indexOf("forbidden") !== -1 || code === "expressar_dsi_access_session_invalid" || code === "expressar_owner_origin_forbidden") {
       return t(i18n, "errorForbidden", "Forbidden.");
     }
     if (code.indexOf("bad_request") !== -1) {
@@ -278,6 +321,111 @@
     return "expresscard-" + id + "-qr." + ext;
   }
 
+  var OWNER_LANG_ORDER_KEY = "excard_owner_lang_option_order";
+
+  function ownerLangRoutesAll() {
+    return ["sk", "cz", "en", "de"];
+  }
+
+  function ownerNormalizeLangRoute(route) {
+    var r = String(route || "").toLowerCase();
+    if (r === "cs") r = "cz";
+    if (ownerLangRoutesAll().indexOf(r) === -1) return "";
+    return r;
+  }
+
+  function ownerPersistLangOrder(order) {
+    try {
+      sessionStorage.setItem(OWNER_LANG_ORDER_KEY, JSON.stringify(order));
+    } catch (e) {}
+  }
+
+  function ownerReadLangOrder() {
+    try {
+      var raw = sessionStorage.getItem(OWNER_LANG_ORDER_KEY);
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed) || parsed.length !== 4) return null;
+      var seen = {};
+      var ok = true;
+      ownerLangRoutesAll().forEach(function (r) {
+        seen[r] = 0;
+      });
+      parsed.forEach(function (r) {
+        var norm = ownerNormalizeLangRoute(r);
+        if (!norm) ok = false;
+        else seen[norm] += 1;
+      });
+      ownerLangRoutesAll().forEach(function (r) {
+        if (seen[r] !== 1) ok = false;
+      });
+      return ok ? parsed.map(ownerNormalizeLangRoute) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function ownerApplyLangOptionOrder(select) {
+    var stored = ownerReadLangOrder();
+    if (!stored) {
+      var initial = [];
+      Array.prototype.forEach.call(select.options, function (opt) {
+        initial.push(ownerNormalizeLangRoute(opt.value));
+      });
+      ownerPersistLangOrder(initial);
+      return;
+    }
+    var selectedRoute = ownerNormalizeLangRoute(select.value);
+    stored.forEach(function (route) {
+      var opt = select.querySelector('option[value="' + route + '"]');
+      if (opt) select.appendChild(opt);
+    });
+    if (selectedRoute) select.value = selectedRoute;
+  }
+
+  function ownerRouteToUiLangCookie(route) {
+    var r = ownerNormalizeLangRoute(route);
+    return r === "cz" ? "cs" : r;
+  }
+
+  function ownerSetUiLangCookie(route) {
+    var dict = ownerRouteToUiLangCookie(route);
+    document.cookie = "excard_ui_lang=" + encodeURIComponent(dict) + "; path=/; max-age=31536000; secure; samesite=lax";
+  }
+
+  function ownerSyncLangSelectValue(route) {
+    var norm = ownerNormalizeLangRoute(route);
+    if (!norm) return;
+    document.querySelectorAll("[data-ex-owner-lang-select]").forEach(function (sel) {
+      if (ownerNormalizeLangRoute(sel.value) !== norm) sel.value = norm;
+    });
+  }
+
+  function initOwnerLangSwitcher(onInpageChange) {
+    document.querySelectorAll("[data-ex-owner-lang-select]").forEach(function (select) {
+      if (select._exOwnerLangBound) return;
+      select._exOwnerLangBound = true;
+      ownerApplyLangOptionOrder(select);
+      select.addEventListener("change", function () {
+        var route = ownerNormalizeLangRoute(select.value);
+        if (!route) return;
+        ownerSetUiLangCookie(route);
+        if (select.getAttribute("data-ex-owner-lang-inpage") === "1") {
+          if (typeof onInpageChange === "function") {
+            onInpageChange(route);
+          } else {
+            var pageCfg = readJsonNode("ex-owner-page-config");
+            applyActivateI18n(pageCfg, route);
+          }
+          return;
+        }
+        var opt = select.options[select.selectedIndex];
+        var href = opt && opt.getAttribute("data-ex-owner-lang-href");
+        if (href) window.location.href = href;
+      });
+    });
+  }
+
   function applyActivateI18n(pageCfg, route) {
     if (!pageCfg || !pageCfg.i18nAll) return;
     var dict = pageCfg.i18nAll[route] || pageCfg.i18nAll.sk || pageCfg.i18n;
@@ -290,13 +438,9 @@
     if (title) title.textContent = t(dict, "activateTitle", title.textContent);
     if (intro && intro.id !== "ex-owner-activate-status") intro.textContent = t(dict, "activateIntro", intro.textContent);
     if (btn) btn.textContent = t(dict, "activateBtn", btn.textContent);
-    document.querySelectorAll(".ex-public-owner-app__lang-link[data-ex-owner-lang-route]").forEach(function (link) {
-      var r = link.getAttribute("data-ex-owner-lang-route") || "";
-      if (r === route) link.setAttribute("aria-current", "true");
-      else link.removeAttribute("aria-current");
-    });
-    document.documentElement.setAttribute("lang", route === "en" ? "en" : route === "de" ? "de" : route === "cs" ? "cs" : "sk");
-    document.cookie = "excard_owner_lang=" + encodeURIComponent(route) + "; path=/; max-age=31536000; secure; samesite=lax";
+    ownerSyncLangSelectValue(route);
+    document.documentElement.setAttribute("lang", route === "en" ? "en" : route === "de" ? "de" : route === "cz" ? "cs" : "sk");
+    ownerSetUiLangCookie(route);
   }
 
   var activateInFlight = false;
@@ -328,17 +472,10 @@
   function initActivateAndHub() {
     var pageCfg = readJsonNode("ex-owner-page-config");
     var i18n = pageCfg && pageCfg.i18n ? pageCfg.i18n : {};
-    if (pageCfg && pageCfg.inpageLang && pageCfg.i18nAll) {
-      document.addEventListener("click", function (event) {
-        var link = event.target.closest("[data-ex-owner-lang-route]");
-        if (!link || !document.querySelector(".ex-public-owner-activate")) return;
-        event.preventDefault();
-        var route = link.getAttribute("data-ex-owner-lang-route") || "";
-        if (!route) return;
-        applyActivateI18n(pageCfg, route);
-        i18n = pageCfg.i18n;
-      });
-    }
+    initOwnerLangSwitcher(function (route) {
+      applyActivateI18n(pageCfg, route);
+      i18n = pageCfg && pageCfg.i18n ? pageCfg.i18n : {};
+    });
     var activateBtn = document.getElementById("ex-owner-activate-btn");
     var statusNode = document.getElementById("ex-owner-activate-status");
     if (activateBtn) {
@@ -355,6 +492,8 @@
         }
         activateInFlight = true;
         activateBtn.disabled = true;
+        if (statusNode) statusNode.hidden = true;
+        exCardBusy.begin();
         postJson("/owner/activate", {
           activation_secret: secret,
           device_label: deviceLabel(),
@@ -366,7 +505,29 @@
             window.location.href = ownerActivationRedirect(redirect, pageCfg) || "/owner/";
             return;
           }
+          var failCode = responseCode(env);
+          if (failCode === "expressar_dsi_access_session_limit_reached") {
+            exCardBusy.end();
+            if (statusNode) {
+              statusNode.hidden = false;
+              statusNode.textContent = t(i18n, "activateSessionLimit", "Device limit reached.");
+            }
+            activateBtn.disabled = false;
+            activateInFlight = false;
+            return;
+          }
+          if (failCode === "expressar_dsi_access_activation_invalid" || failCode === "expressar_dsi_access_activation_consumed") {
+            exCardBusy.end();
+            if (statusNode) {
+              statusNode.hidden = false;
+              statusNode.textContent = t(i18n, "activateInvalid", "Invalid link.");
+            }
+            activateBtn.disabled = false;
+            activateInFlight = false;
+            return;
+          }
           postSession({}).then(function (sessionEnv) {
+            exCardBusy.end();
             if (sessionEnv && sessionEnv.httpOk && sessionEnv.data && sessionEnv.data.valid === true) {
               window.location.href = ownerActivationRedirect("/owner/", pageCfg);
               return;
@@ -378,6 +539,10 @@
             activateBtn.disabled = false;
             activateInFlight = false;
           });
+        }).catch(function () {
+          exCardBusy.end();
+          activateBtn.disabled = false;
+          activateInFlight = false;
         });
       });
     }
@@ -391,15 +556,20 @@
         if (!email) return;
         var submitBtn = renewForm.querySelector('button[type="submit"]');
         if (submitBtn) submitBtn.disabled = true;
+        exCardBusy.begin();
         postJson("/owner/api/renew", { email: email }, 0).then(function (env) {
+          exCardBusy.end();
           if (renewStatus) {
             renewStatus.hidden = false;
             if (env && env.httpOk && env.data && (env.data.ok === true || env.data.message)) {
-              renewStatus.textContent = t(i18n, "renewDefault", "");
+              renewStatus.textContent = t(i18n, "renewSuccess", "") + " " + t(i18n, "renewDeviceHint", "") + " " + t(i18n, "activationLinkValidity", "");
             } else {
               renewStatus.textContent = mapApiMessage(i18n, env);
             }
           }
+          if (submitBtn) submitBtn.disabled = false;
+        }).catch(function () {
+          exCardBusy.end();
           if (submitBtn) submitBtn.disabled = false;
         });
       });
@@ -409,8 +579,10 @@
   function initOwnerApp() {
     var root = document.querySelector("[data-ex-owner-app]");
     if (!root) return;
+    if (ownerAppBound) return;
     var cfg = readJsonNode("ex-owner-app-config");
     if (!cfg || !cfg.card_ref) return;
+    ownerAppBound = true;
     var i18n = cfg.i18n || {};
     var locale = cfg.lang && cfg.lang.locale ? cfg.lang.locale : "sk-SK";
     var publicUrl = String(cfg.public_url || "");
@@ -418,6 +590,7 @@
     var publicId = String(cfg.public_id || cardRef || "");
     var api = cfg.api || {};
     var revalidating = false;
+    var revalidateRetryPending = false;
     var privateAllowed = true;
     var activeContactId = 0;
     var detailGen = 0;
@@ -454,9 +627,14 @@
       return window.navigator && window.navigator.standalone === true;
     }
 
-    function homescreenGuidePlatform() {
+    function homescreenInstallUx() {
       var ua = navigator.userAgent || "";
-      if (/iPhone|iPad|iPod/i.test(ua)) return "ios";
+      var ios = /iPhone|iPod/i.test(ua) || (/\b(iPad|Macintosh)\b/i.test(ua) && navigator.maxTouchPoints > 1);
+      if (ios) {
+        if (/CriOS/i.test(ua)) return "ios-chrome";
+        if (/FxiOS|EdgiOS|OPiOS/i.test(ua)) return "ios-other";
+        return "ios-safari";
+      }
       if (/Android/i.test(ua)) return "android";
       return "desktop";
     }
@@ -465,12 +643,16 @@
       if (!panels.homescreen) return;
       var list = panels.homescreen.querySelector("[data-ex-owner-homescreen-steps]");
       if (!list) return;
-      var platform = homescreenGuidePlatform();
-      var keys = platform === "ios"
-        ? ["homescreenGuideIos1", "homescreenGuideIos2", "homescreenGuideIos3"]
-        : platform === "android"
-          ? ["homescreenGuideAndroid1", "homescreenGuideAndroid2", "homescreenGuideAndroid3"]
-          : ["homescreenGuideDesktop1", "homescreenGuideDesktop2"];
+      var platform = homescreenInstallUx();
+      var keys = platform === "ios-safari"
+        ? ["homescreenGuideIosSafari1", "homescreenGuideIosSafari2", "homescreenGuideIosSafari3", "homescreenGuideIosSafari4"]
+        : platform === "ios-chrome"
+          ? ["homescreenGuideIosChrome1", "homescreenGuideIosChrome2", "homescreenGuideIosChrome3", "homescreenGuideIosChrome4"]
+          : platform === "ios-other"
+            ? ["homescreenGuideIosOther1", "homescreenGuideIosOther2", "homescreenGuideIosOther3"]
+            : platform === "android"
+              ? ["homescreenGuideAndroid1", "homescreenGuideAndroid2", "homescreenGuideAndroid3"]
+              : ["homescreenGuideDesktop1", "homescreenGuideDesktop2"];
       list.textContent = "";
       keys.forEach(function (key) {
         var text = t(i18n, key, "");
@@ -593,34 +775,120 @@
       window.location.replace("/owner/?view=cards");
     }
 
-    function revalidate() {
-      if (revalidating) return;
+    function showRevalidateUnavailable() {
+      revalidateRetryPending = true;
+      if (countError && countErrorText) {
+        countError.hidden = false;
+        countErrorText.textContent = t(i18n, "bootstrapUnavailable", t(i18n, "errorUnavailable", ""));
+      }
+      announce(t(i18n, "bootstrapUnavailable", t(i18n, "errorUnavailable", "")));
+    }
+
+    function applyOwnerPublicationState(publicationRequest) {
+      var pubEl = root.querySelector("[data-ex-owner-publication-state]");
+      if (!pubEl || !privateAllowed) {
+        return;
+      }
+      if (!publicationRequest || typeof publicationRequest !== "object") {
+        pubEl.hidden = true;
+        pubEl.textContent = "";
+        return;
+      }
+      var state = String(publicationRequest.state || "");
+      var lines = [];
+      if (publicationRequest.show_unpublished_notice && (state === "unpublished" || state === "request_stale" || state === "request_mail_failed")) {
+        lines.push(t(i18n, "publicationUnpublished", "Uložené | Nezverejnené"));
+      }
+      if (state === "request_sent") {
+        lines.push(t(i18n, "publicationRequestSent", "Žiadosť o zverejnenie bola odoslaná."));
+      } else if (state === "request_pending") {
+        lines.push(t(i18n, "publicationRequestPending", "Žiadosť je zaevidovaná. Upozornenie správcovi sa odosiela."));
+      } else if (state === "unavailable") {
+        lines.push(t(i18n, "publicationStateUnavailable", "Stav zverejnenia sa momentálne nepodarilo overiť."));
+      } else if (state === "request_stale") {
+        lines.push(t(i18n, "publicationRequestStale", "Od poslednej žiadosti ste uložili ďalšie zmeny."));
+      } else if (state === "request_mail_failed") {
+        lines.push(t(i18n, "publicationMailFailed", "Upozornenie správcovi sa nepodarilo odoslať."));
+      }
+      if (!lines.length) {
+        pubEl.hidden = true;
+        pubEl.textContent = "";
+        return;
+      }
+      pubEl.textContent = lines.join(" ");
+      pubEl.hidden = false;
+    }
+
+    function applySessionEditorAccess(editorAccess) {
+      if (!manageBtn || !api.editor_link || !privateAllowed) return;
+      if (!editorAccess || typeof editorAccess !== "object") return;
+      editLinkGen += 1;
+      applyEditorLinkResponse(
+        {
+          httpOk: true,
+          status: 200,
+          data: editorAccess,
+          networkError: false,
+          parseError: false
+        },
+        editLinkGen
+      );
+    }
+
+    function revalidate(force) {
+      if (revalidateInFlight) return revalidateInFlight;
       revalidating = true;
+      revalidateRetryPending = false;
       privateAllowed = false;
       setPrivateUi(false);
-      announce(t(i18n, "revalidatePending", ""));
-      postSession({ card_ref: cardRef }).then(function (env) {
-        revalidating = false;
-        var payload = env && env.data ? env.data : null;
-        if (!env || !env.httpOk || !payload || payload.valid !== true) {
-          failClosed();
-          return;
-        }
-        if (payload.card_allowed !== true) {
-          failCardDenied();
-          return;
-        }
-        privateAllowed = true;
-        setPrivateUi(true);
-        announce("");
-        refreshUnread();
-      });
+      if (countError) countError.hidden = true;
+      revalidateInFlight = postSession({ card_ref: cardRef })
+        .then(function (env) {
+          revalidating = false;
+          revalidateInFlight = null;
+          if (env && env.networkError) {
+            showRevalidateUnavailable();
+            return;
+          }
+          var payload = env && env.data ? env.data : null;
+          if (!env || !env.httpOk || !payload) {
+            showRevalidateUnavailable();
+            return;
+          }
+          if (payload.unavailable === true) {
+            showRevalidateUnavailable();
+            return;
+          }
+          if (payload.valid !== true) {
+            failClosed();
+            return;
+          }
+          if (payload.card_allowed !== true) {
+            failCardDenied();
+            return;
+          }
+          privateAllowed = true;
+          setPrivateUi(true);
+          announce("");
+          refreshUnread();
+          applySessionEditorAccess(payload.editor_access);
+          applyOwnerPublicationState(payload.publication_request);
+        })
+        .catch(function () {
+          revalidating = false;
+          revalidateInFlight = null;
+          showRevalidateUnavailable();
+        });
+      return revalidateInFlight;
     }
 
     document.cookie = "excard_owner_pref=" + encodeURIComponent(cardRef) + "; path=/; max-age=2592000; secure; samesite=lax";
-    window.addEventListener("pageshow", revalidate);
+    ownerBootstrapped = true;
+    window.addEventListener("pageshow", function (event) {
+      if (event.persisted) revalidate(true);
+    });
     document.addEventListener("visibilitychange", function () {
-      if (document.visibilityState === "visible") revalidate();
+      if (document.visibilityState === "visible") revalidate(true);
     });
 
     function openPanel(name, opener) {
@@ -666,12 +934,6 @@
     bindPanelBackdrop(panels.homescreen);
     bindPanelBackdrop(panels.export, closeExportPanel);
 
-    var homescreenHelp = root.querySelector("[data-ex-owner-homescreen-help]");
-    if (homescreenHelp) {
-      homescreenHelp.addEventListener("click", function () {
-        openHomescreenGuide(homescreenHelp);
-      });
-    }
     var homescreenBtn = root.querySelector("[data-ex-owner-homescreen]");
     if (homescreenBtn) {
       if (isStandaloneDisplay()) {
@@ -679,6 +941,12 @@
         var serviceNav = root.querySelector(".ex-public-owner-app__service");
         if (serviceNav) serviceNav.hidden = true;
       } else {
+        var homescreenLabel = homescreenBtn.querySelector("[data-ex-owner-homescreen-label]");
+        if (homescreenLabel) {
+          homescreenLabel.textContent = deferredInstallPrompt && !installPromptConsumed
+            ? t(i18n, "actionHomescreen", "Pridať na plochu")
+            : t(i18n, "actionHomescreenGuide", "Ako pridať na plochu");
+        }
         homescreenBtn.addEventListener("click", function () {
           handleHomescreenAction(homescreenBtn);
         });
@@ -704,9 +972,13 @@
     var logoutConfirm = logoutDialog ? logoutDialog.querySelector("[data-ex-owner-logout-confirm]") : null;
     var logoutOpener = null;
     var logoutInFlight = false;
+    var editRequestDialog = document.querySelector("[data-ex-owner-edit-request-dialog]");
+    var editRequestClose = editRequestDialog ? editRequestDialog.querySelector("[data-ex-owner-edit-request-close]") : null;
+    var editRequestConfirm = editRequestDialog ? editRequestDialog.querySelector("[data-ex-owner-edit-request-confirm]") : null;
+    var editRequestOpener = null;
 
     function closeLogoutDialog() {
-      if (!logoutDialog || logoutDialog.hidden) return;
+      if (!logoutDialog || logoutDialog.hidden || logoutInFlight) return;
       logoutDialog.hidden = true;
       if (logoutConfirm) logoutConfirm.disabled = false;
       if (logoutOpener && typeof logoutOpener.focus === "function") logoutOpener.focus();
@@ -725,6 +997,11 @@
         if (logoutDialog && !logoutDialog.hidden) {
           event.preventDefault();
           closeLogoutDialog();
+          return;
+        }
+        if (editRequestDialog && !editRequestDialog.hidden) {
+          event.preventDefault();
+          closeEditRequestDialog();
           return;
         }
         if (panels.export && !panels.export.hidden) {
@@ -887,26 +1164,289 @@
     }
 
     var manageBtn = root.querySelector("[data-ex-owner-manage]");
+    var editRequestNode = root.querySelector("[data-ex-owner-edit-request]");
+    var editLinkGen = 0;
+    var nameNode = root.querySelector("#ex-owner-display-name");
+
+    function cardDisplayLabel() {
+      if (!nameNode) return "";
+      return String(nameNode.textContent || "").trim();
+    }
+
+    function canonicalEditorPublicId() {
+      return String(publicId || "").trim();
+    }
+
+    function isValidHttpsEditUrl(url, requireHandoffFragment) {
+      if (!url || typeof url !== "string") return false;
+      var expectedCard = canonicalEditorPublicId();
+      if (!expectedCard) return false;
+      try {
+        var parsed = new URL(url, window.location.origin);
+        var baseOk = parsed.protocol === "https:" &&
+        parsed.hostname === "expressar.eu" &&
+        parsed.port === "" &&
+        parsed.username === "" &&
+        parsed.password === "" &&
+        /^\/(?:(?:sk|cz|en|de)\/)?expresscard-management\/?$/.test(parsed.pathname) &&
+        parsed.searchParams.get("card") === expectedCard;
+        if (!baseOk) return false;
+        var entry = parsed.searchParams.get("excard_entry");
+        if (entry && entry !== "manager" && entry !== "delegated") return false;
+        if (!requireHandoffFragment) {
+          if (entry === "delegated") return false;
+          return true;
+        }
+        if (entry && entry !== "delegated") return false;
+        var hash = String(parsed.hash || "").replace(/^#/, "");
+        if (!hash) return false;
+        return hash.split("&").some(function (part) {
+          var idx = part.indexOf("=");
+          if (idx < 0) return false;
+          return decodeURIComponent(part.slice(0, idx)) === "ex_edit" &&
+            decodeURIComponent(part.slice(idx + 1)).length > 0;
+        });
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function editorPayloadCanShowManage(payload) {
+      if (!payload || payload.can_edit !== true) return false;
+      if (payload.mode === "delegated") return true;
+      if (payload.mode === "manager") return isValidHttpsEditUrl(payload.edit_url, false);
+      return false;
+    }
+
+    function editorPayloadCanNavigate(payload) {
+      if (!payload || payload.can_edit !== true) return false;
+      if (payload.mode === "delegated") return isValidHttpsEditUrl(payload.edit_url, true);
+      if (payload.mode === "manager") return isValidHttpsEditUrl(payload.edit_url, false);
+      return false;
+    }
+
+    function isManagerEmail(value) {
+      if (!value || typeof value !== "string") return false;
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+    }
+
+    function clearEditRequestUi() {
+      if (!editRequestNode) return;
+      editRequestNode.textContent = "";
+      editRequestNode.hidden = true;
+    }
+
+    var editRequestInFlight = false;
+
+    function closeEditRequestDialog() {
+      if (!editRequestDialog || editRequestDialog.hidden || editRequestInFlight) return;
+      editRequestDialog.hidden = true;
+      if (editRequestConfirm) editRequestConfirm.disabled = false;
+      if (editRequestOpener && typeof editRequestOpener.focus === "function") editRequestOpener.focus();
+      editRequestOpener = null;
+    }
+
+    function openEditRequestDialog(opener) {
+      if (!editRequestDialog || editRequestInFlight) return;
+      editRequestOpener = opener || null;
+      editRequestDialog.hidden = false;
+      if (editRequestClose) editRequestClose.focus();
+    }
+
+    function submitEditRequest() {
+      if (editRequestInFlight || !api.edit_request) return;
+      editRequestInFlight = true;
+      if (editRequestConfirm) editRequestConfirm.disabled = true;
+      postJson(api.edit_request, {
+        card_ref: cardRef,
+        card_label: cardDisplayLabel() || cardRef
+      }, 0).then(function (env) {
+        editRequestInFlight = false;
+        if (editRequestConfirm) editRequestConfirm.disabled = false;
+        closeEditRequestDialog();
+        if (env && env.httpOk && env.data && env.data.ok === true) {
+          announce(t(i18n, "editRequestSent", ""));
+          return;
+        }
+        if (env && env.status === 429) {
+          announce(t(i18n, "editRequestRateLimited", ""));
+          return;
+        }
+        if (!env || env.networkError) {
+          announce(t(i18n, "editRequestFailed", ""));
+          return;
+        }
+        announce(t(i18n, "editRequestFailed", ""));
+      }).catch(function () {
+        editRequestInFlight = false;
+        if (editRequestConfirm) editRequestConfirm.disabled = false;
+        closeEditRequestDialog();
+        announce(t(i18n, "editRequestFailed", ""));
+      });
+    }
+
+    if (editRequestDialog) {
+      editRequestDialog.addEventListener("click", function (event) {
+        if (event.target === editRequestDialog) closeEditRequestDialog();
+      });
+    }
+    if (editRequestClose) {
+      editRequestClose.addEventListener("click", function () {
+        closeEditRequestDialog();
+      });
+    }
+    if (editRequestConfirm) {
+      editRequestConfirm.addEventListener("click", function () {
+        submitEditRequest();
+      });
+    }
+
+    function renderEditRequest() {
+      if (!editRequestNode) return;
+      editRequestNode.textContent = "";
+      var lead = t(i18n, "editRequestLead", "");
+      var linkText = t(i18n, "editRequestLink", "");
+      if (lead) {
+        var leadLine = document.createElement("span");
+        leadLine.className = "ex-public-owner-app__edit-request-line";
+        leadLine.textContent = lead;
+        editRequestNode.appendChild(leadLine);
+      }
+      if (api.edit_request && linkText) {
+        var actionLine = document.createElement("span");
+        actionLine.className = "ex-public-owner-app__edit-request-line";
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "ex-public-owner-app__edit-request-link";
+        btn.textContent = linkText;
+        btn.addEventListener("click", function () {
+          openEditRequestDialog(btn);
+        });
+        actionLine.appendChild(btn);
+        editRequestNode.appendChild(actionLine);
+      }
+      editRequestNode.hidden = !editRequestNode.childNodes.length;
+    }
+
+    function showEditLinkServiceError() {
+      clearEditRequestUi();
+      if (manageBtn) manageBtn.hidden = true;
+      announce(t(i18n, "editLinkUnavailable", t(i18n, "errorUnavailable", "")));
+    }
+
+    function applyManageCtaLabel(payload) {
+      if (!manageBtn) return;
+      var span = manageBtn.querySelector("[data-ex-owner-manage-label]");
+      if (!span || !payload) return;
+      if (payload.mode === "manager") {
+        span.textContent = t(i18n, "actionManage", t(i18n, "actionEdit", ""));
+        return;
+      }
+      if (payload.mode === "delegated") {
+        span.textContent = t(i18n, "actionEditDelegated", t(i18n, "actionEdit", ""));
+      }
+    }
+
+    function applyEditorLinkResponse(env, gen) {
+      if (gen !== editLinkGen || !privateAllowed) return;
+      if (manageBtn) {
+        manageBtn.disabled = false;
+        manageBtn.hidden = true;
+      }
+      clearEditRequestUi();
+      if (!env || env.networkError || env.parseError) {
+        showEditLinkServiceError();
+        return;
+      }
+      if (!env.httpOk || !env.data || env.status >= 500 || env.status === 429) {
+        showEditLinkServiceError();
+        return;
+      }
+      var payload = env.data;
+      if (typeof payload.can_edit !== "boolean") {
+        showEditLinkServiceError();
+        return;
+      }
+      if (editorPayloadCanShowManage(payload)) {
+        applyManageCtaLabel(payload);
+        if (manageBtn) manageBtn.hidden = false;
+        announce("");
+        return;
+      }
+      if (payload.can_edit === false) {
+        renderEditRequest();
+        announce("");
+        return;
+      }
+      showEditLinkServiceError();
+    }
+
+    function refreshEditorLinkAccess() {
+      if (!manageBtn || !api.editor_link || !privateAllowed) {
+        editLinkGen += 1;
+        if (manageBtn) {
+          manageBtn.hidden = true;
+          manageBtn.disabled = false;
+        }
+        clearEditRequestUi();
+        return;
+      }
+      editLinkGen += 1;
+      var gen = editLinkGen;
+      if (manageBtn) {
+        manageBtn.hidden = true;
+        manageBtn.disabled = true;
+      }
+      clearEditRequestUi();
+      postJson(api.editor_link, { card_ref: cardRef }, 0)
+        .then(function (env) {
+          applyEditorLinkResponse(env, gen);
+        })
+        .catch(function () {
+          if (gen !== editLinkGen) return;
+          if (manageBtn) manageBtn.disabled = false;
+          showEditLinkServiceError();
+        });
+    }
+
     if (manageBtn && api.editor_link) {
       manageBtn.hidden = true;
-      postJson(api.editor_link, { card_ref: cardRef }, 0).then(function (env) {
-        var payload = env && env.data ? env.data : null;
-        if (payload && (payload.can_edit === true || payload.can_edit === "1")) {
-          manageBtn.hidden = false;
-        }
-      });
+      if (cfg && cfg.editor_access && typeof cfg.editor_access === "object") {
+        editLinkGen += 1;
+        applyEditorLinkResponse(
+          {
+            httpOk: true,
+            status: 200,
+            data: cfg.editor_access,
+            networkError: false,
+            parseError: false
+          },
+          editLinkGen
+        );
+      }
+      if (cfg && cfg.publication_request) {
+        applyOwnerPublicationState(cfg.publication_request);
+      }
       manageBtn.addEventListener("click", function () {
+        if (!privateAllowed) return;
+        editLinkGen += 1;
+        var gen = editLinkGen;
         manageBtn.disabled = true;
-        postJson(api.editor_link, { card_ref: cardRef }, 0).then(function (env) {
-          manageBtn.disabled = false;
-          var payload = env && env.data ? env.data : null;
-          var url = payload && (payload.url || payload.editor_url || payload.edit_url);
-          if (env && env.httpOk && url) {
-            window.location.href = String(url);
-            return;
-          }
-          announce(t(i18n, "editUnavailable", ""));
-        });
+        clearEditRequestUi();
+        postJson(api.editor_link, { card_ref: cardRef }, 0)
+          .then(function (env) {
+            applyEditorLinkResponse(env, gen);
+            if (gen !== editLinkGen) return;
+            var payload = env && env.data ? env.data : null;
+            if (gen === editLinkGen && privateAllowed && env && env.httpOk === true && !env.networkError && !env.parseError && editorPayloadCanNavigate(payload)) {
+              window.location.href = String(payload.edit_url);
+            }
+          })
+          .catch(function () {
+            if (gen !== editLinkGen) return;
+            manageBtn.disabled = false;
+            showEditLinkServiceError();
+          });
       });
     }
 
@@ -954,7 +1494,15 @@
       });
     }
 
-    if (countRetry) countRetry.addEventListener("click", refreshUnread);
+    if (countRetry) {
+      countRetry.addEventListener("click", function () {
+        if (revalidateRetryPending) {
+          revalidate(true);
+          return;
+        }
+        refreshUnread();
+      });
+    }
 
     function updateListItemRead(contactId) {
       if (!contactList) return;
@@ -1006,8 +1554,10 @@
       var gen = contactsGen;
       contactsLoading = true;
       updateContactsMoreUi();
+      exCardBusy.begin();
       postJson(api.contacts_list, { card_ref: cardRef, offset: offset }, 0).then(function (env) {
         contactsLoading = false;
+        exCardBusy.end();
         if (gen !== contactsGen || !privateAllowed) return;
         if (!isListResponse(env)) {
           if (append) announce(t(i18n, "contactsLoadMoreError", ""));
@@ -1102,8 +1652,8 @@
 
     if (contactsBtn && api.contacts_list) {
       contactsBtn.addEventListener("click", openContactsList);
-      refreshUnread();
     }
+    refreshUnread();
 
     var readBtn = panels.detail ? panels.detail.querySelector("[data-ex-owner-mark-read]") : null;
     if (readBtn && api.contacts_read) {
@@ -1187,6 +1737,115 @@
     }
   }
 
+  function showBootError(pageCfg, message) {
+    var err = document.querySelector("[data-ex-owner-boot-error]");
+    var text = document.querySelector("[data-ex-owner-boot-error-text]");
+    if (text) text.textContent = message || t(pageCfg && pageCfg.i18n ? pageCfg.i18n : {}, "errorUnavailable", "");
+    if (err) err.hidden = false;
+    exCardBusy.reset();
+  }
+
+  function applyCardBootstrap(parts) {
+    var mount = document.querySelector("[data-ex-owner-mount]");
+    if (!mount || !parts || !parts.html) {
+      exCardBusy.reset();
+      return;
+    }
+    document.body.className = parts.body_class || document.body.className;
+    if (typeof parts.body_style === "string" && parts.body_style) {
+      document.body.style.cssText = parts.body_style;
+    } else {
+      document.body.removeAttribute("style");
+    }
+    mount.innerHTML = parts.html;
+    mount.hidden = false;
+    exCardBusy.reset();
+    ownerBootstrapped = true;
+    initOwnerLangSwitcher();
+    initOwnerApp();
+  }
+
+  function applyHubBootstrap(html, pageCfg) {
+    var mount = document.querySelector("[data-ex-owner-mount]");
+    if (!mount) return;
+    mount.innerHTML = html || "";
+    mount.hidden = false;
+    if (pageCfg) {
+      var node = document.getElementById("ex-owner-page-config");
+      if (node) node.textContent = JSON.stringify(pageCfg);
+    }
+    exCardBusy.reset();
+    initActivateAndHub();
+    initOwnerLangSwitcher();
+  }
+
+  var bootRetryBound = false;
+
+  function runOwnerBootstrap() {
+    var pageCfg = readJsonNode("ex-owner-page-config");
+    if (!pageCfg || (pageCfg.page !== "boot-hub" && pageCfg.page !== "boot-card")) return;
+    if (bootstrapInFlight) return;
+    bootstrapInFlight = true;
+    var i18n = pageCfg.i18n || {};
+    var apiUrl = pageCfg.api && pageCfg.api.bootstrap ? pageCfg.api.bootstrap : "/owner/api/bootstrap";
+    var body = {
+      mode: pageCfg.mode === "card" ? "card" : "hub",
+      card_ref: pageCfg.card_ref || "",
+      view_cards: !!pageCfg.view_cards,
+      lang_route: pageCfg.lang && pageCfg.lang.route ? pageCfg.lang.route : "",
+      setup_homescreen: !!pageCfg.setupHomescreenGuide
+    };
+    exCardBusy.begin();
+    postJson(apiUrl, body, 0)
+      .then(function (env) {
+        if (!env || env.networkError) {
+          showBootError(pageCfg, t(i18n, "errorNetwork", ""));
+          return;
+        }
+        if (!env.httpOk || !env.data) {
+          showBootError(pageCfg, t(i18n, "errorUnavailable", ""));
+          return;
+        }
+        if (env.data.code === "core_unavailable") {
+          showBootError(pageCfg, t(i18n, "bootstrapUnavailable", t(i18n, "errorUnavailable", "")));
+          return;
+        }
+        if (env.data.redirect) {
+          exCardBusy.reset();
+          window.location.replace(env.data.redirect);
+          return;
+        }
+        if (env.data.kind === "card") {
+          applyCardBootstrap(env.data);
+          return;
+        }
+        if (env.data.kind === "hub") {
+          applyHubBootstrap(env.data.html, env.data.page || pageCfg);
+          return;
+        }
+        showBootError(pageCfg, t(i18n, "errorGeneric", ""));
+      })
+      .catch(function () {
+        showBootError(pageCfg, t(i18n, "errorUnavailable", ""));
+      })
+      .then(function () {
+        bootstrapInFlight = false;
+      });
+    if (!bootRetryBound) {
+      bootRetryBound = true;
+      var retry = document.querySelector("[data-ex-owner-boot-retry]");
+      if (retry) {
+        retry.addEventListener("click", function () {
+          var err = document.querySelector("[data-ex-owner-boot-error]");
+          if (err) err.hidden = true;
+          runOwnerBootstrap();
+        });
+      }
+    }
+  }
+
   initActivateAndHub();
+  initOwnerLangSwitcher();
   initOwnerApp();
+  runOwnerBootstrap();
 })();
